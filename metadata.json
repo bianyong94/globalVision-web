@@ -1,0 +1,8 @@
+{
+  "name": "Global Vision - Premium Video Aggregator",
+  "description": "A high-performance mobile-first video platform featuring movies, TV shows, anime, and variety shows with smart recommendations powered by Gemini.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
