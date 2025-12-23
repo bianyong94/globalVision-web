@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { fetchHomeData } from "../services/api"
-import { HomeData, Video } from "../types"
+import { HomeData } from "../types"
 import VideoCard from "../components/VideoCard"
 import {
   Loader2,
