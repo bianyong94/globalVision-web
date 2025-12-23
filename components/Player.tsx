@@ -1,68 +1,60 @@
 import React, { useEffect, useRef } from "react"
 import Artplayer from "artplayer"
 import Hls from "hls.js"
-import artplayerPluginDanmuku from "artplayer-plugin-danmuku"
 
 interface PlayerProps {
   url: string
   poster?: string
-  initialTime?: number // 记忆播放时间
-  onTimeUpdate?: (currentTime: number) => void // 进度回调
-  onPlay?: () => void
+  className?: string
 }
 
-const Player: React.FC<PlayerProps> = ({
-  url,
-  poster,
-  initialTime,
-  onTimeUpdate,
-  onPlay,
-}) => {
+const Player: React.FC<PlayerProps> = ({ url, poster, className }) => {
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
 
   useEffect(() => {
     if (!artRef.current) return
 
-    // 初始化 ArtPlayer
+    // 初始化播放器
     const art = new Artplayer({
       container: artRef.current,
       url: url,
       poster: poster,
-      volume: 0.5,
+      volume: 0.7,
       isLive: false,
       muted: false,
-      autoplay: true,
-      pip: true, // 画中画
-      autoSize: true, // 自动比例
-      autoMini: true, // 滚动时自动小窗
-      screenshot: true, // 截图
-      setting: true, // 设置面板
-      loop: false,
-      flip: true, // 画面翻转
-      playbackRate: true, // 倍速
-      aspectRatio: true, // 比例切换
+      autoplay: false,
+      autoSize: true, // 自动适配尺寸
+      autoMini: true, // 滚动页面时自动开启迷你模式 (类似B站)
+
+      // 核心功能配置
+      playbackRate: true, // 开启倍速
+      aspectRatio: true, // 开启画面比例切换
+      setting: true, // 开启设置面板
+      pip: true, // 开启画中画
       fullscreen: true, // 全屏
       fullscreenWeb: true, // 网页全屏
-      subtitleOffset: true, // 字幕偏移
-      miniProgressBar: true, // 迷你进度条
-      mutex: true, // 互斥
-      backdrop: true,
-      playsInline: true, // 移动端内联播放
-      autoPlayback: true,
-      airplay: true,
-      theme: "#23ade5", // Bilibili 蓝
+      miniProgressBar: true, // 底部迷你进度条
 
-      // 移动端手势 (核心体验)
+      // 移动端优化 (Bilibili 风格)
       moreVideoAttr: {
-        crossOrigin: "anonymous",
+        // @ts-ignore
+        "x5-video-player-type": "h5-page", // 微信同层播放优化
+        playsInline: true,
+      },
+      lock: true, // 移动端锁定按钮
+      fastForward: true, // 移动端长按2倍速 (B站核心功能)
+
+      // 缓存配置
+      icons: {
+        loading: '<img src="/assets/loading.svg" width="50" />', // 你可以自定义loading
       },
 
-      // 核心：集成 HLS.js 以支持 m3u8
+      // HLS 集成 (核心性能优化点)
       customType: {
-        m3u8: function (video: HTMLMediaElement, url: string, art) {
+        m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
           if (Hls.isSupported()) {
-            if (art.hls) art.hls.destroy()
+            if (art.hls) (art.hls as Hls).destroy()
             const hls = new Hls()
             hls.loadSource(url)
             hls.attachMedia(video)
@@ -75,65 +67,40 @@ const Player: React.FC<PlayerProps> = ({
           }
         },
       },
-
-      // 弹幕插件
-      plugins: [
-        artplayerPluginDanmuku({
-          danmuku: [
-            // 模拟一些弹幕，真实场景需要后端接口
-            { text: "前方高能", time: 1, color: "#ff0000" },
-            { text: "第一！！", time: 2, color: "#fff" },
-            { text: "画质感人", time: 3, color: "#00ff00" },
-          ],
-          speed: 5,
-          opacity: 1,
-          fontSize: 14,
-          color: "#ffffff",
-          mode: 0,
-          margin: [10, "25%"],
-          antiOverlap: true,
-          useWorker: true,
-          synchronousPlayback: false,
-          lockTime: 5,
-          maxLength: 100,
-          minWidth: 200,
-          weight: 10,
-          visible: true,
-          emitter: true, // 允许发送弹幕
-        }),
-      ],
-    })
-
-    // 事件监听
-    art.on("ready", () => {
-      // 记忆播放跳转
-      if (initialTime && initialTime > 0) {
-        console.log("Jump to history:", initialTime)
-        art.seek = initialTime
-      }
-    })
-
-    art.on("video:timeupdate", () => {
-      // 每秒回调一次进度
-      if (onTimeUpdate) {
-        onTimeUpdate(art.currentTime)
-      }
-    })
-
-    art.on("play", () => {
-      if (onPlay) onPlay()
     })
 
     playerRef.current = art
 
+    // 监听播放错误，自动重试或提示
+    art.on("error", (error) => {
+      console.log("Player Error:", error)
+      art.notice.show = "视频加载失败，请切换源尝试"
+    })
+
     return () => {
-      if (playerRef.current && playerRef.current.destroy) {
-        playerRef.current.destroy(false)
+      if (art && art.destroy) {
+        art.destroy(false)
       }
     }
-  }, [url]) // 当 URL 变化时销毁重建
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // 空依赖，只初始化一次
 
-  return <div ref={artRef} className="w-full h-full" />
+  // 监听 URL 变化，实现无刷新切换 (性能优化)
+  useEffect(() => {
+    if (playerRef.current && url) {
+      console.log("Switching URL:", url)
+      playerRef.current.switchUrl(url)
+      if (poster) playerRef.current.poster = poster
+    }
+  }, [url, poster])
+
+  return (
+    <div
+      ref={artRef}
+      className={`w-full aspect-video bg-black ${className}`}
+      style={{ zIndex: 10 }}
+    />
+  )
 }
 
 export default Player

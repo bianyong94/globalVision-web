@@ -1,290 +1,377 @@
-import React, { useState, useEffect, useRef, useCallback } from "react"
-import { Search as SearchIcon, X, Filter, Loader2 } from "lucide-react"
-import { fetchVideoList } from "../services/api"
-import { VideoResource } from "../types"
-import VideoGrid from "../components/VideoGrid"
+import React, { useState, useEffect, useCallback, useRef } from "react"
+import { fetchCategories, fetchVideos } from "../services/api"
+import { Category, VideoSummary } from "../types"
+import VideoCard from "../components/VideoCard"
+import toast from "react-hot-toast"
 import {
-  CATEGORY_HIERARCHY,
-  findCategoryContext,
-} from "../src/constants/categories"
+  Search as SearchIcon,
+  Loader2,
+  Filter,
+  Clock,
+  Flame,
+  Layers,
+  Sparkles,
+  XCircle,
+  Film,
+} from "lucide-react"
 
-interface SearchProps {
-  onVideoSelect: (v: VideoResource) => void
-  darkMode: boolean
-  initialCategory?: number
-}
-
-// 年份配置
 const YEARS = [
-  "全部",
   "2025",
   "2024",
   "2023",
   "2022",
   "2021",
   "2020",
-  "2019",
-  "2018",
-  "2010-2017",
-  "更早",
+  "2010-2019",
+  "2000-2009",
+]
+const SORTS = [
+  { label: "最新", value: "time", icon: <Clock size={12} /> },
+  { label: "最热", value: "hits", icon: <Flame size={12} /> },
+  { label: "评分", value: "score", icon: <Sparkles size={12} /> },
 ]
 
-const Search: React.FC<SearchProps> = ({
-  onVideoSelect,
-  darkMode,
-  initialCategory = 0,
-}) => {
-  // === 筛选状态 ===
-  const [query, setQuery] = useState("")
-  const [activeParentId, setActiveParentId] = useState<number>(1)
-  const [activeChildId, setActiveChildId] = useState<number>(5)
-  const [activeYear, setActiveYear] = useState("全部")
+const SearchPage = () => {
+  // --- State ---
+  const [categories, setCategories] = useState<Category[]>([])
+  const [videos, setVideos] = useState<VideoSummary[]>([])
 
-  // === 数据状态 ===
-  const [videos, setVideos] = useState<VideoResource[]>([])
-  const [loading, setLoading] = useState(false)
+  // 搜索相关
+  const [inputValue, setInputValue] = useState("") // UI显示的值
+  const [activeKeyword, setActiveKeyword] = useState("") // 实际请求用的值
+
+  // 筛选相关
+  const [selectedCategory, setSelectedCategory] = useState<number | string>("")
+  const [selectedYear, setSelectedYear] = useState("")
+  const [selectedSort, setSelectedSort] = useState("time")
+
+  // 分页与加载
   const [page, setPage] = useState(1)
-  const [hasMore, setHasMore] = useState(true) // 是否还有下一页
+  const [hasMore, setHasMore] = useState(true)
+  const [loading, setLoading] = useState(false) // 重置加载
+  const [loadingMore, setLoadingMore] = useState(false) // 滚动加载
 
-  // === 引用 Ref (用于监听触底) ===
+  // --- Refs (用于解决竞态问题和无限滚动) ---
+  const abortControllerRef = useRef<AbortController | null>(null) // 控制请求取消
   const observer = useRef<IntersectionObserver | null>(null)
 
-  // 触底元素的回调
   const lastVideoElementRef = useCallback(
     (node: HTMLDivElement) => {
-      if (loading) return
+      if (loading || loadingMore) return
       if (observer.current) observer.current.disconnect()
-
       observer.current = new IntersectionObserver((entries) => {
-        // 如果底部元素可见，且还有更多数据，页码+1
         if (entries[0].isIntersecting && hasMore) {
-          setPage((prevPage) => prevPage + 1)
+          setPage((prev) => prev + 1)
         }
       })
-
       if (node) observer.current.observe(node)
     },
-    [loading, hasMore]
+    [loading, loadingMore, hasMore]
   )
 
-  // 1. 初始化逻辑：处理从首页跳转过来的 ID
+  // --- Effects ---
+
+  // 1. 初始化分类
   useEffect(() => {
-    if (initialCategory !== 0) {
-      const { parentId, defaultChildId } = findCategoryContext(initialCategory)
-      setActiveParentId(parentId)
-      setActiveChildId(defaultChildId)
+    fetchCategories().then(setCategories)
+  }, [])
+
+  // ⚡️ 修复痛点1：监听输入框清空
+  // 当用户手动删除所有文字时，立即重置搜索关键词，防止切换分类时带入旧关键词
+  useEffect(() => {
+    if (inputValue === "" && activeKeyword !== "") {
+      setActiveKeyword("")
     }
-  }, [initialCategory])
+  }, [inputValue, activeKeyword])
 
-  // 2. 核心数据请求逻辑
-  // 监听 query, activeChildId, activeYear, page 的变化
+  // 2. 核心搜索逻辑 (重置型请求)
   useEffect(() => {
-    const loadVideos = async () => {
+    // ⚡️ 修复痛点2：取消上一次未完成的请求 (防竞态)
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    // 创建新的控制器
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    const doSearch = async () => {
       setLoading(true)
+      setVideos([]) // 立即清空列表，防止视觉上残留旧数据
+      setPage(1)
+      setHasMore(true)
+
       try {
-        const params: any = {
-          pg: page,
-          year: activeYear === "全部" ? undefined : activeYear,
-        }
+        // 传入 signal
+        const res = await fetchVideos(
+          {
+            wd: activeKeyword,
+            t: selectedCategory,
+            year: selectedYear === "全部" ? "" : selectedYear,
+            pg: 1,
+            by: selectedSort,
+          },
+          controller.signal
+        ) // <--- 关键：绑定 signal
 
-        // 搜索优先：如果有搜索词，通常不传分类，只传 wd
-        if (query.trim()) {
-          params.wd = query.trim()
+        if (!res.list || res.list.length === 0) {
+          if (activeKeyword)
+            toast("未找到相关资源", { icon: "🤔", id: "search_empty" })
+          setHasMore(false)
         } else {
-          // 没有搜索词，传分类ID
-          params.t = activeChildId
+          setVideos(res.list)
+          setHasMore(true)
         }
-
-        const { list, pagecount } = await fetchVideoList(params)
-
-        setVideos((prev) => {
-          // 如果是第1页，直接覆盖；如果是翻页，追加数据
-          // 使用 Set 去重，防止 API 偶尔返回重复数据
-          if (page === 1) return list
-          const existingIds = new Set(prev.map((v) => v.id))
-          const newUniqueItems = list.filter((v) => !existingIds.has(v.id))
-          return [...prev, ...newUniqueItems]
-        })
-
-        // 判断是否还有下一页
-        setHasMore(page < pagecount)
-      } catch (e) {
-        if (page === 1) setVideos([])
+      } catch (e: any) {
+        // 如果是“取消请求”导致的错误，不处理，也不弹窗
+        if (e.name === "CanceledError" || e.message === "canceled") {
+          return
+        }
+        setHasMore(false)
       } finally {
-        setLoading(false)
+        // 只有当这个请求没有被取消时，才关闭 loading
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
       }
     }
 
-    // 防抖逻辑
-    const timer = setTimeout(() => {
-      loadVideos()
-    }, 300)
+    // 稍微延迟一点点执行，避免极速连续点击导致的闪烁（可选）
+    // 但有了 AbortController，直接执行也是安全的
+    doSearch()
 
-    return () => clearTimeout(timer)
-  }, [page, query, activeChildId, activeYear])
+    return () => {
+      // 组件卸载或依赖变化时取消
+      controller.abort()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKeyword, selectedCategory, selectedYear, selectedSort])
 
-  // 3. 当筛选条件变化时，重置页码为 1
+  // 3. 加载更多逻辑 (追加型请求)
+  // 加载更多通常不需要 Abort，因为它是顺序发生的，但为了严谨也可以加
   useEffect(() => {
-    setPage(1)
-    setVideos([]) // 可选：清空列表让用户感知到切换了
-    setHasMore(true)
-    // 自动滚动回顶部
-    window.scrollTo({ top: 0, behavior: "smooth" })
-  }, [query, activeChildId, activeYear])
+    if (page === 1) return
 
-  // 切换父类时的逻辑
-  const handleParentChange = (parentId: number) => {
-    setActiveParentId(parentId)
-    const parent = CATEGORY_HIERARCHY.find((p) => p.id === parentId)
-    if (parent && parent.children && parent.children.length > 0) {
-      setActiveChildId(parent.children[0].id)
-    } else {
-      setActiveChildId(parentId)
+    const loadMoreData = async () => {
+      setLoadingMore(true)
+      try {
+        const res = await fetchVideos({
+          wd: activeKeyword,
+          t: selectedCategory,
+          year: selectedYear === "全部" ? "" : selectedYear,
+          pg: page,
+          by: selectedSort,
+        }) // 这里不加 signal，防止滚动太快取消了前一页
+
+        if (!res.list || res.list.length === 0) {
+          setHasMore(false)
+          toast("到底了", {
+            icon: "🔚",
+            style: { borderRadius: "10px", background: "#333", color: "#fff" },
+          })
+        } else {
+          setVideos((prev) => [...prev, ...res.list])
+        }
+      } catch (e) {
+        setHasMore(false)
+      } finally {
+        setLoadingMore(false)
+      }
+    }
+
+    loadMoreData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
+
+  // --- Handlers ---
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (inputValue.trim() !== activeKeyword) {
+      setActiveKeyword(inputValue.trim())
+      ;(document.activeElement as HTMLElement)?.blur()
     }
   }
 
-  const currentSubCategories =
-    CATEGORY_HIERARCHY.find((c) => c.id === activeParentId)?.children || []
+  const handleClear = () => {
+    setInputValue("")
+    // useEffect 会监听到 inputValue 变空，从而自动设置 activeKeyword 为空
+    // 这里不需要手动 setActiveKeyword('')，交给 useEffect 统一管理状态同步
+  }
+
+  // --- Components ---
+  const FilterChip = ({ active, onClick, children, icon }: any) => (
+    <button
+      onClick={onClick}
+      className={`
+            flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-300 border backdrop-blur-sm whitespace-nowrap
+            ${
+              active
+                ? "bg-gradient-to-r from-emerald-500 to-cyan-600 border-transparent text-white shadow-[0_0_10px_rgba(16,185,129,0.4)] transform scale-105"
+                : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:border-emerald-500/30 hover:text-white"
+            }
+        `}
+    >
+      {icon}
+      {children}
+    </button>
+  )
 
   return (
-    <div
-      className={`min-h-screen pb-20 ${
-        darkMode ? "bg-zinc-950 text-white" : "bg-white"
-      }`}
-    >
-      {/* 顶部固定筛选区 */}
-      <div
-        className={`sticky top-0 z-30 ${
-          darkMode ? "bg-zinc-950/95" : "bg-white/95"
-        } backdrop-blur border-b border-gray-800/30`}
-      >
-        {/* 1. 搜索框 */}
-        <div className="p-4 pb-2">
-          <div
-            className={`relative flex items-center rounded-xl p-3 border transition-colors ${
-              darkMode
-                ? "bg-zinc-900 border-zinc-800 focus-within:border-blue-500"
-                : "bg-gray-50 border-gray-200"
-            }`}
-          >
-            <SearchIcon size={18} className="text-gray-400 mr-3" />
+    <div className="min-h-screen bg-[#050505] pb-20 selection:bg-emerald-500/30">
+      {/* 顶部搜索栏 */}
+      <div className="sticky top-0 z-30 bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 px-4 py-3">
+        <form onSubmit={handleSubmit} className="relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-xl opacity-20 group-focus-within:opacity-100 transition duration-500 blur"></div>
+          <div className="relative flex items-center bg-[#121212] rounded-xl overflow-hidden">
+            <button
+              type="submit"
+              className="pl-4 text-gray-400 hover:text-white transition-colors"
+            >
+              <SearchIcon size={18} />
+            </button>
             <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜片名、导演、演员、关键词..."
-              className="bg-transparent flex-1 outline-none text-sm placeholder:text-gray-500"
+              type="search"
+              placeholder="搜索片名、导演、演员..."
+              className="w-full bg-transparent text-white px-3 py-3 outline-none placeholder-gray-600 text-sm"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
             />
-            {query && (
-              <button onClick={() => setQuery("")}>
-                <X size={18} className="text-gray-400" />
+            {inputValue && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="pr-4 text-gray-500 hover:text-white"
+              >
+                <XCircle size={16} />
               </button>
             )}
           </div>
+        </form>
+      </div>
+
+      {/* 筛选区域 */}
+      <div className="px-4 py-4 space-y-4">
+        {/* 分类 */}
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+            <Filter size={14} className="text-emerald-400" />
+          </div>
+          <FilterChip
+            active={selectedCategory === ""}
+            onClick={() => setSelectedCategory("")}
+          >
+            全部
+          </FilterChip>
+          {categories.map((cat) => (
+            <FilterChip
+              key={cat.type_id}
+              active={selectedCategory === cat.type_id}
+              onClick={() => setSelectedCategory(cat.type_id)}
+            >
+              {cat.type_name}
+            </FilterChip>
+          ))}
         </div>
 
-        {/* 2. 筛选条件区 (只有没搜索词时显示) */}
-        {!query && (
-          <div className="flex flex-col gap-2 pb-2">
-            {/* 一级分类 */}
-            <div className="flex items-center px-4 gap-6 overflow-x-auto hide-scrollbar">
-              {CATEGORY_HIERARCHY.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => handleParentChange(cat.id)}
-                  className={`py-2 text-sm font-bold whitespace-nowrap border-b-2 transition-all ${
-                    activeParentId === cat.id
-                      ? "border-blue-500 text-blue-500"
-                      : "border-transparent text-gray-500"
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
+        {/* 年份 */}
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+            <Clock size={14} className="text-cyan-400" />
+          </div>
+          <FilterChip
+            active={selectedYear === ""}
+            onClick={() => setSelectedYear("")}
+          >
+            全部年份
+          </FilterChip>
+          {YEARS.map((year) => (
+            <FilterChip
+              key={year}
+              active={selectedYear === year}
+              onClick={() => setSelectedYear(year)}
+            >
+              {year}
+            </FilterChip>
+          ))}
+        </div>
+
+        {/* 排序 */}
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar border-t border-white/5 pt-4 mt-2">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+            <Layers size={14} className="text-purple-400" />
+          </div>
+          {SORTS.map((sort) => (
+            <FilterChip
+              key={sort.value}
+              active={selectedSort === sort.value}
+              icon={sort.icon}
+              onClick={() => setSelectedSort(sort.value)}
+            >
+              {sort.label}
+            </FilterChip>
+          ))}
+        </div>
+      </div>
+
+      {/* 结果区域 */}
+      <div className="px-4 mt-2 min-h-[50vh]">
+        {loading ? (
+          // 加载中骨架屏
+          <div className="grid grid-cols-3 gap-3 animate-pulse">
+            {[...Array(9)].map((_, i) => (
+              <div
+                key={i}
+                className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5"
+              ></div>
+            ))}
+          </div>
+        ) : videos.length > 0 ? (
+          // 结果列表
+          <div className="grid grid-cols-3 gap-3">
+            {videos.map((v, index) => {
+              if (videos.length === index + 1) {
+                return (
+                  <div ref={lastVideoElementRef} key={`${v.id}-${index}`}>
+                    <VideoCard video={v} />
+                  </div>
+                )
+              } else {
+                return <VideoCard key={`${v.id}-${index}`} video={v} />
+              }
+            })}
+          </div>
+        ) : (
+          // 空状态
+          <div className="flex flex-col items-center justify-center py-20 text-gray-600 space-y-4">
+            <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center animate-bounce border border-white/5">
+              <Film size={32} className="text-gray-500" />
             </div>
-
-            {/* 二级分类 */}
-            {currentSubCategories.length > 1 && (
-              <div className="px-4 flex gap-2 overflow-x-auto hide-scrollbar">
-                {currentSubCategories.map((sub) => (
-                  <button
-                    key={sub.id}
-                    onClick={() => setActiveChildId(sub.id)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
-                      activeChildId === sub.id
-                        ? "bg-blue-600 text-white"
-                        : darkMode
-                        ? "bg-zinc-800 text-zinc-400"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {sub.name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* 年份筛选 */}
-            <div className="px-4 flex gap-2 overflow-x-auto hide-scrollbar border-t border-gray-800/10 pt-2">
-              <div className="flex items-center text-xs text-gray-500 mr-2 shrink-0">
-                年份
-              </div>
-              {YEARS.map((y) => (
-                <button
-                  key={y}
-                  onClick={() => setActiveYear(y)}
-                  className={`px-2 py-1 rounded-md text-xs whitespace-nowrap transition-all ${
-                    activeYear === y
-                      ? "bg-blue-500/10 text-blue-500 font-bold"
-                      : "text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  {y}
-                </button>
-              ))}
+            <div className="text-center">
+              <p className="text-sm text-gray-400">未找到相关资源</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {activeKeyword
+                  ? `"${activeKeyword}" 暂无结果`
+                  : "尝试更换筛选条件"}
+              </p>
             </div>
           </div>
         )}
-      </div>
 
-      {/* 内容区域 */}
-      <div className="px-4 pt-4 min-h-[50vh]">
-        {videos.length > 0 ? (
-          <>
-            <VideoGrid
-              videos={videos}
-              onVideoClick={onVideoSelect}
-              darkMode={darkMode}
-            />
-
-            {/* 触底加载指示器 */}
-            <div
-              ref={lastVideoElementRef}
-              className="py-8 flex justify-center w-full"
-            >
-              {loading && hasMore && (
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <Loader2 size={16} className="animate-spin" /> 加载更多...
-                </div>
-              )}
-              {!hasMore && videos.length > 10 && (
-                <p className="text-xs text-gray-500">———— 我是有底线的 ————</p>
-              )}
+        {/* 加载更多 Loading */}
+        {loadingMore && (
+          <div className="flex justify-center py-6">
+            <div className="flex items-center gap-2 text-emerald-500 text-xs font-bold bg-emerald-500/10 px-4 py-2 rounded-full border border-emerald-500/20">
+              <Loader2 className="animate-spin" size={14} />
+              LOADING...
             </div>
-          </>
-        ) : (
-          !loading && (
-            <div className="text-center py-20 text-gray-500 text-sm">
-              {query ? "未找到相关结果" : "暂无数据"}
-            </div>
-          )
+          </div>
         )}
 
-        {/* 首次加载的 Loading 占位 */}
-        {loading && page === 1 && (
-          <div className="flex flex-col items-center py-20 gap-4 opacity-50">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs">正在搜索资源库...</p>
+        {!hasMore && videos.length > 0 && (
+          <div className="flex justify-center py-8 opacity-30">
+            <span className="text-[10px] text-gray-500 tracking-widest uppercase">
+              - End of Results -
+            </span>
           </div>
         )}
       </div>
@@ -292,4 +379,4 @@ const Search: React.FC<SearchProps> = ({
   )
 }
 
-export default Search
+export default SearchPage

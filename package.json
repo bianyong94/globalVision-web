@@ -1,5 +1,5 @@
 {
-  "name": "global-vision---premium-video-aggregator",
+  "name": "streamhub-mobile",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,14 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.34.0",
     "artplayer": "^5.3.0",
-    "artplayer-plugin-danmuku": "^5.2.0",
+    "axios": "^1.13.2",
     "hls.js": "^1.6.15",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "react-player": "^3.4.0"
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "^7.11.0",
+    "swiper": "^12.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
