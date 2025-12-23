@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { fetchHomeData } from "../services/api"
 import { HomeData } from "../types"
-import VideoCard from "../components/VideoCard"
 import {
-  Loader2,
   Play,
   Info,
   ChevronRight,
@@ -40,7 +38,6 @@ const Home = () => {
     load()
   }, [])
 
-  // 骨架屏加载动画 (让等待过程也很酷)
   if (loading)
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center space-y-4">
@@ -84,17 +81,13 @@ const Home = () => {
                   alt={item.title}
                   className="w-full h-full object-cover object-top"
                 />
-                {/* 顶部渐变遮罩 (防止刘海挡住) */}
                 <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 to-transparent" />
-                {/* 底部强渐变遮罩 (融合背景) */}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/60 to-transparent" />
-                {/* 侧边装饰光 */}
                 <div className="absolute inset-y-0 right-0 w-1/4 bg-gradient-to-l from-black/60 to-transparent" />
               </div>
 
               {/* 内容区域 */}
               <div className="absolute bottom-0 left-0 w-full p-6 pb-12 flex flex-col items-start z-10">
-                {/* 标签 */}
                 <div className="flex items-center gap-2 mb-3">
                   <span className="bg-gradient-to-r from-emerald-500 to-cyan-600 text-[10px] font-bold px-2 py-0.5 rounded text-white shadow-[0_0_10px_rgba(16,185,129,0.5)]">
                     独家推荐
@@ -107,17 +100,14 @@ const Home = () => {
                   </span>
                 </div>
 
-                {/* 标题 */}
                 <h1 className="text-4xl font-black text-white mb-2 leading-tight drop-shadow-lg line-clamp-2 w-[85%]">
                   {item.title}
                 </h1>
 
-                {/* 简介简述 */}
                 <p className="text-sm text-gray-400 line-clamp-1 mb-6 w-[80%]">
                   {item.remarks} · {item.year} · {item.area}
                 </p>
 
-                {/* 按钮组 */}
                 <div className="flex items-center gap-3 w-full">
                   <button
                     onClick={() => navigate(`/detail/${item.id}`)}
@@ -140,8 +130,9 @@ const Home = () => {
         </Swiper>
       </section>
 
-      {/* 2. 快速分类胶囊 (Horizontal Scroll) */}
-      <div className="px-4 -mt-4 relative z-20 mb-8 overflow-x-auto no-scrollbar">
+      {/* 2. 快速分类胶囊 */}
+      {/* 🛠️ 修改：添加 touch-pan-x 锁定Y轴滚动 */}
+      <div className="px-4 -mt-4 relative z-20 mb-8 overflow-x-auto no-scrollbar touch-pan-x">
         <div className="flex gap-3 mt-4">
           {["动作", "科幻", "爱情", "悬疑", "动画", "恐怖", "喜剧"].map(
             (cat, i) => (
@@ -157,38 +148,22 @@ const Home = () => {
       </div>
 
       <div className="space-y-10 pb-6">
-        {/* 3. 热门榜单模块 (带数字排名的横向滚动) */}
+        {/* 3. 热门榜单模块 */}
         <section className="pl-4">
           <SectionHeader
             title="本周热榜"
             icon={<Flame className="text-orange-500" />}
           />
 
-          <div className="flex overflow-x-auto gap-4 pr-4 pb-4 no-scrollbar snap-x">
-            {data.movies.slice(0, 8).map((movie, index) => (
+          {/* 🛠️ 修改：添加 touch-pan-x 锁定Y轴滚动 */}
+          <div className="flex overflow-x-auto gap-4 pr-4 pb-4 no-scrollbar snap-x touch-pan-x">
+            {data.movies.slice(0, 8).map((movie) => (
               <div
                 key={movie.id}
                 className="relative flex-shrink-0 w-36 snap-start group"
                 onClick={() => navigate(`/detail/${movie.id}`)}
               >
-                {/* 巨大排名数字 */}
-                <span
-                  className={`
-                            absolute -left-4 -bottom-6 text-[80px] font-black italic leading-none z-0 select-none
-                            text-transparent bg-clip-text bg-gradient-to-t 
-                            ${
-                              index === 0
-                                ? "from-yellow-500 to-transparent opacity-80"
-                                : index === 1
-                                ? "from-gray-400 to-transparent opacity-60"
-                                : index === 2
-                                ? "from-orange-700 to-transparent opacity-50"
-                                : "from-white/10 to-transparent opacity-30"
-                            }
-                        `}
-                >
-                  {index + 1}
-                </span>
+                {/* 🛠️ 修改：已移除巨大的排名数字 Span 标签 */}
 
                 {/* 海报 */}
                 <div className="w-full aspect-[2/3] rounded-lg overflow-hidden border border-white/10 relative z-10 shadow-2xl bg-[#1a1a1a]">
@@ -196,13 +171,14 @@ const Home = () => {
                     src={movie.poster}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                     loading="lazy"
+                    alt={movie.title}
                   />
                   {/* 角标 */}
                   <div className="absolute top-1 right-1 bg-black/60 backdrop-blur text-[10px] px-1.5 rounded text-white">
                     {movie.rating}
                   </div>
                 </div>
-                <div className="mt-2 relative z-10 pl-2">
+                <div className="mt-2 relative z-10 pl-1">
                   <h3 className="text-sm font-bold text-gray-200 truncate">
                     {movie.title}
                   </h3>
@@ -212,13 +188,14 @@ const Home = () => {
           </div>
         </section>
 
-        {/* 4. 电视剧集 (Netflix式横滑) */}
+        {/* 4. 电视剧集 */}
         <section className="pl-4">
           <SectionHeader
             title="热播剧集"
             icon={<Tv className="text-cyan-400" />}
           />
-          <div className="flex overflow-x-auto gap-3 pr-4 pb-2 no-scrollbar">
+          {/* 🛠️ 修改：添加 touch-pan-x 锁定Y轴滚动 */}
+          <div className="flex overflow-x-auto gap-3 pr-4 pb-2 no-scrollbar touch-pan-x">
             {data.tvs.map((tv) => (
               <div
                 key={tv.id}
@@ -230,6 +207,7 @@ const Home = () => {
                     src={tv.poster}
                     className="w-full h-full object-cover group-hover:opacity-80 transition-opacity bg-[#1a1a1a]"
                     loading="lazy"
+                    alt={tv.title}
                   />
                   <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
                   <div className="absolute bottom-1 right-1 text-[10px] text-cyan-300 bg-cyan-900/30 border border-cyan-500/30 px-1 rounded backdrop-blur-sm">
@@ -242,7 +220,7 @@ const Home = () => {
           </div>
         </section>
 
-        {/* 5. 动漫精选 (网格布局) */}
+        {/* 5. 动漫精选 (网格布局不需要改，本身是纵向的) */}
         <section className="px-4">
           <SectionHeader
             title="动漫新番"
@@ -260,6 +238,7 @@ const Home = () => {
                     src={anime.poster}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
+                    alt={anime.title}
                   />
                   {/* 悬浮播放按钮 */}
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
