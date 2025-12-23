@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react"
 import { fetchCategories, fetchVideos } from "../services/api"
 import { Category, VideoSummary } from "../types"
 import VideoCard from "../components/VideoCard"
+import { useSearchParams } from "react-router-dom" 
 import toast from "react-hot-toast"
 import {
   Search as SearchIcon,
@@ -32,13 +33,16 @@ const SORTS = [
 ]
 
 const SearchPage = () => {
+   // 2. 获取 URL 参数
+  const [searchParams] = useSearchParams()
+  const initialQuery = searchParams.get("q") || ""
   // --- State ---
   const [categories, setCategories] = useState<Category[]>([])
   const [videos, setVideos] = useState<VideoSummary[]>([])
 
-  // 搜索相关
-  const [inputValue, setInputValue] = useState("") // UI显示的值
-  const [activeKeyword, setActiveKeyword] = useState("") // 实际请求用的值
+  // 3. 初始化 inputValue 使用 URL 参数
+  const [inputValue, setInputValue] = useState(initialQuery)
+  const [activeKeyword, setActiveKeyword] = useState(initialQuery)
 
   // 筛选相关
   const [selectedCategory, setSelectedCategory] = useState<number | string>("")
@@ -55,6 +59,7 @@ const SearchPage = () => {
   const abortControllerRef = useRef<AbortController | null>(null) // 控制请求取消
   const observer = useRef<IntersectionObserver | null>(null)
 
+  
   const lastVideoElementRef = useCallback(
     (node: HTMLDivElement) => {
       if (loading || loadingMore) return
@@ -78,11 +83,19 @@ const SearchPage = () => {
 
   // ⚡️ 修复痛点1：监听输入框清空
   // 当用户手动删除所有文字时，立即重置搜索关键词，防止切换分类时带入旧关键词
+  // useEffect(() => {
+  //   if (inputValue === "" && activeKeyword !== "") {
+  //     setActiveKeyword("")
+  //   }
+  // }, [inputValue, activeKeyword])
+   // 4. 关键：监听 URL 参数变化 (处理从 AI 页面跳转过来的情况)
   useEffect(() => {
-    if (inputValue === "" && activeKeyword !== "") {
-      setActiveKeyword("")
+    const query = searchParams.get("q")
+    if (query && query !== activeKeyword) {
+      setInputValue(query)
+      setActiveKeyword(query)
     }
-  }, [inputValue, activeKeyword])
+  }, [searchParams])
 
   // 2. 核心搜索逻辑 (重置型请求)
   useEffect(() => {
