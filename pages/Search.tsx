@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react"
 import { fetchCategories, fetchVideos } from "../services/api"
 import { Category, VideoSummary } from "../types"
 import VideoCard from "../components/VideoCard"
-import { useSearchParams } from "react-router-dom" 
+import { useSearchParams } from "react-router-dom"
 import toast from "react-hot-toast"
 import {
   Search as SearchIcon,
@@ -32,34 +32,39 @@ const SORTS = [
   { label: "评分", value: "score", icon: <Sparkles size={12} /> },
 ]
 
-const SearchPage = () => {
-   // 2. 获取 URL 参数
-  const [searchParams] = useSearchParams()
+const Search = () => {
+  // 1. 获取 URL 参数
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // 初始化参数读取
   const initialQuery = searchParams.get("q") || ""
+  const initialType = searchParams.get("t") || "" // 修复：读取分类参数
+
   // --- State ---
   const [categories, setCategories] = useState<Category[]>([])
   const [videos, setVideos] = useState<VideoSummary[]>([])
 
-  // 3. 初始化 inputValue 使用 URL 参数
+  // 搜索词状态
   const [inputValue, setInputValue] = useState(initialQuery)
   const [activeKeyword, setActiveKeyword] = useState(initialQuery)
 
-  // 筛选相关
-  const [selectedCategory, setSelectedCategory] = useState<number | string>("")
+  // 筛选状态
+  const [selectedCategory, setSelectedCategory] = useState<number | string>(
+    initialType
+  ) // 修复：应用初始分类
   const [selectedYear, setSelectedYear] = useState("")
   const [selectedSort, setSelectedSort] = useState("time")
 
   // 分页与加载
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
-  const [loading, setLoading] = useState(false) // 重置加载
-  const [loadingMore, setLoadingMore] = useState(false) // 滚动加载
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
-  // --- Refs (用于解决竞态问题和无限滚动) ---
-  const abortControllerRef = useRef<AbortController | null>(null) // 控制请求取消
+  // --- Refs ---
+  const abortControllerRef = useRef<AbortController | null>(null)
   const observer = useRef<IntersectionObserver | null>(null)
 
-  
   const lastVideoElementRef = useCallback(
     (node: HTMLDivElement) => {
       if (loading || loadingMore) return
@@ -76,45 +81,53 @@ const SearchPage = () => {
 
   // --- Effects ---
 
-  // 1. 初始化分类
+  // 1. 初始化分类数据
   useEffect(() => {
     fetchCategories().then(setCategories)
   }, [])
 
-  // ⚡️ 修复痛点1：监听输入框清空
-  // 当用户手动删除所有文字时，立即重置搜索关键词，防止切换分类时带入旧关键词
-  // useEffect(() => {
-  //   if (inputValue === "" && activeKeyword !== "") {
-  //     setActiveKeyword("")
-  //   }
-  // }, [inputValue, activeKeyword])
-   // 4. 关键：监听 URL 参数变化 (处理从 AI 页面跳转过来的情况)
+  // 2. 监听 URL 参数变化 (处理 AI 跳转 或 浏览器前进后退)
   useEffect(() => {
     const query = searchParams.get("q")
-    if (query && query !== activeKeyword) {
+    const type = searchParams.get("t")
+
+    // 如果 URL 里的 q 变了，且跟当前不一样，同步到内部状态
+    if (query !== null && query !== activeKeyword) {
       setInputValue(query)
       setActiveKeyword(query)
     }
+
+    // 如果 URL 里的 t 变了，同步分类
+    if (type !== null && type !== String(selectedCategory)) {
+      setSelectedCategory(type)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
-  // 2. 核心搜索逻辑 (重置型请求)
+  // 3. 修复痛点：监听输入框清空
+  // 当用户手动删除所有文字时，自动重置搜索，防止带入旧关键词
   useEffect(() => {
-    // ⚡️ 修复痛点2：取消上一次未完成的请求 (防竞态)
+    if (inputValue === "" && activeKeyword !== "") {
+      setActiveKeyword("")
+    }
+  }, [inputValue, activeKeyword])
+
+  // 4. 核心搜索逻辑 (重置型请求)
+  useEffect(() => {
+    // 取消上一次未完成的请求
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
-    // 创建新的控制器
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     const doSearch = async () => {
       setLoading(true)
-      setVideos([]) // 立即清空列表，防止视觉上残留旧数据
+      setVideos([]) // 清空旧数据
       setPage(1)
       setHasMore(true)
 
       try {
-        // 传入 signal
         const res = await fetchVideos(
           {
             wd: activeKeyword,
@@ -124,7 +137,7 @@ const SearchPage = () => {
             by: selectedSort,
           },
           controller.signal
-        ) // <--- 关键：绑定 signal
+        )
 
         if (!res.list || res.list.length === 0) {
           if (activeKeyword)
@@ -135,32 +148,24 @@ const SearchPage = () => {
           setHasMore(true)
         }
       } catch (e: any) {
-        // 如果是“取消请求”导致的错误，不处理，也不弹窗
-        if (e.name === "CanceledError" || e.message === "canceled") {
-          return
-        }
+        if (e.name === "CanceledError" || e.message === "canceled") return
         setHasMore(false)
       } finally {
-        // 只有当这个请求没有被取消时，才关闭 loading
         if (!controller.signal.aborted) {
           setLoading(false)
         }
       }
     }
 
-    // 稍微延迟一点点执行，避免极速连续点击导致的闪烁（可选）
-    // 但有了 AbortController，直接执行也是安全的
     doSearch()
 
     return () => {
-      // 组件卸载或依赖变化时取消
       controller.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKeyword, selectedCategory, selectedYear, selectedSort])
 
-  // 3. 加载更多逻辑 (追加型请求)
-  // 加载更多通常不需要 Abort，因为它是顺序发生的，但为了严谨也可以加
+  // 5. 加载更多逻辑
   useEffect(() => {
     if (page === 1) return
 
@@ -173,7 +178,7 @@ const SearchPage = () => {
           year: selectedYear === "全部" ? "" : selectedYear,
           pg: page,
           by: selectedSort,
-        }) // 这里不加 signal，防止滚动太快取消了前一页
+        })
 
         if (!res.list || res.list.length === 0) {
           setHasMore(false)
@@ -201,14 +206,33 @@ const SearchPage = () => {
     e.preventDefault()
     if (inputValue.trim() !== activeKeyword) {
       setActiveKeyword(inputValue.trim())
+      // 更新 URL 中的 q 参数 (可选，为了分享链接)
+      setSearchParams((prev) => {
+        if (inputValue.trim()) prev.set("q", inputValue.trim())
+        else prev.delete("q")
+        return prev
+      })
       ;(document.activeElement as HTMLElement)?.blur()
     }
   }
 
   const handleClear = () => {
     setInputValue("")
-    // useEffect 会监听到 inputValue 变空，从而自动设置 activeKeyword 为空
-    // 这里不需要手动 setActiveKeyword('')，交给 useEffect 统一管理状态同步
+    // useEffect 会自动处理 activeKeyword 的重置
+    setSearchParams((prev) => {
+      prev.delete("q")
+      return prev
+    })
+  }
+
+  // 优化：切换分类同时更新 URL，方便用户分享链接
+  const handleCategoryChange = (id: string | number) => {
+    setSelectedCategory(id)
+    setSearchParams((prev) => {
+      if (id) prev.set("t", String(id))
+      else prev.delete("t")
+      return prev
+    })
   }
 
   // --- Components ---
@@ -271,15 +295,15 @@ const SearchPage = () => {
           </div>
           <FilterChip
             active={selectedCategory === ""}
-            onClick={() => setSelectedCategory("")}
+            onClick={() => handleCategoryChange("")}
           >
             全部
           </FilterChip>
           {categories.map((cat) => (
             <FilterChip
               key={cat.type_id}
-              active={selectedCategory === cat.type_id}
-              onClick={() => setSelectedCategory(cat.type_id)}
+              active={String(selectedCategory) === String(cat.type_id)}
+              onClick={() => handleCategoryChange(cat.type_id)}
             >
               {cat.type_name}
             </FilterChip>
@@ -329,7 +353,6 @@ const SearchPage = () => {
       {/* 结果区域 */}
       <div className="px-4 mt-2 min-h-[50vh]">
         {loading ? (
-          // 加载中骨架屏
           <div className="grid grid-cols-3 gap-3 animate-pulse">
             {[...Array(9)].map((_, i) => (
               <div
@@ -339,7 +362,6 @@ const SearchPage = () => {
             ))}
           </div>
         ) : videos.length > 0 ? (
-          // 结果列表
           <div className="grid grid-cols-3 gap-3">
             {videos.map((v, index) => {
               if (videos.length === index + 1) {
@@ -354,7 +376,6 @@ const SearchPage = () => {
             })}
           </div>
         ) : (
-          // 空状态
           <div className="flex flex-col items-center justify-center py-20 text-gray-600 space-y-4">
             <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center animate-bounce border border-white/5">
               <Film size={32} className="text-gray-500" />
@@ -370,7 +391,6 @@ const SearchPage = () => {
           </div>
         )}
 
-        {/* 加载更多 Loading */}
         {loadingMore && (
           <div className="flex justify-center py-6">
             <div className="flex items-center gap-2 text-emerald-500 text-xs font-bold bg-emerald-500/10 px-4 py-2 rounded-full border border-emerald-500/20">
@@ -392,4 +412,4 @@ const SearchPage = () => {
   )
 }
 
-export default SearchPage
+export default Search

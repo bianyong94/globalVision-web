@@ -1,19 +1,24 @@
 import React, { useEffect, useState, useRef } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { fetchVideoDetail, saveHistory, fetchHistory } from "../services/api"
-import { VideoDetail } from "../types"
+import {
+  fetchVideoDetail,
+  fetchVideos,
+  saveHistory,
+  fetchHistory,
+} from "../services/api"
+import { VideoDetail, VideoSummary } from "../types"
 import Player from "../components/Player"
 import { useAuth } from "../context/AuthContext"
+import toast from "react-hot-toast"
 import {
   Loader2,
   ChevronLeft,
-  Calendar,
-  MapPin,
-  Tag,
   PlayCircle,
   Info,
-  History as HistoryIcon,
-  Star,
+  Cast,
+  ThumbsUp,
+  MessageSquare,
+  Send,
 } from "lucide-react"
 
 const Detail = () => {
@@ -21,53 +26,90 @@ const Detail = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
 
+  // 数据状态
   const [detail, setDetail] = useState<VideoDetail | null>(null)
+  const [recommendations, setRecommendations] = useState<VideoSummary[]>([])
   const [loading, setLoading] = useState(true)
+
+  // 播放状态
   const [currentEpIndex, setCurrentEpIndex] = useState(0)
   const [startTime, setStartTime] = useState(0)
+  const [isDescExpanded, setIsDescExpanded] = useState(false)
 
-  // Refs 防止闭包问题
+  // Refs
   const detailRef = useRef<VideoDetail | null>(null)
   const currentEpIndexRef = useRef(0)
 
+  // 1. 加载数据核心逻辑
   useEffect(() => {
     if (!id) return
-    
+
+    // 初始化重置
+    setDetail(null)
+    setRecommendations([])
+    setLoading(true)
+    setCurrentEpIndex(0)
+    setStartTime(0)
+
     const load = async () => {
-      setLoading(true)
       try {
+        // A. 获取详情
         const data = await fetchVideoDetail(id)
         setDetail(data)
         detailRef.current = data
 
+        // B. 获取推荐 (增强版兜底逻辑)
+        // 尝试1: 按分类搜
+        let recRes = await fetchVideos({ t: data.type, pg: 1 }).catch(() => ({
+          list: [],
+        }))
+        let recList = recRes.list || []
+
+        // 尝试2: 如果分类搜不到，就搜最新热门 (兜底，保证有数据)
+        if (recList.length === 0) {
+          console.log("分类推荐为空，切换为热门推荐")
+          const hotRes = await fetchVideos({ pg: 1 }).catch(() => ({
+            list: [],
+          }))
+          recList = hotRes.list || []
+        }
+
+        // 过滤掉当前视频自己
+        const finalRecs = recList
+          .filter((v: any) => String(v.id) !== String(data.id))
+          .slice(0, 6)
+        setRecommendations(finalRecs)
+
+        // C. 获取历史进度
         if (user) {
           const historyList = await fetchHistory(user.username)
-          // 强制转字符串对比，防止类型不一致
-          const record = historyList.find((h: any) => String(h.id) === String(data.id))
-          
+          const record = historyList.find(
+            (h: any) => String(h.id) === String(data.id)
+          )
           if (record) {
             const savedEpIdx = record.episodeIndex || 0
-            const savedTime = record.progress || 0
-            
             if (savedEpIdx < data.episodes.length) {
               setCurrentEpIndex(savedEpIdx)
               currentEpIndexRef.current = savedEpIdx
             }
-            setStartTime(savedTime)
+            setStartTime(record.progress || 0)
           }
         }
       } catch (e) {
         console.error(e)
+        toast.error("资源加载异常")
       } finally {
         setLoading(false)
       }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.username])
 
+  // 2. 历史记录保存
   const handleSaveHistory = (time: number) => {
     if (!user || !detailRef.current) return
-    if (time > 5) {
+    if (time > 5 && time % 5 === 0) {
       saveHistory({
         username: user.username,
         video: {
@@ -78,7 +120,7 @@ const Detail = () => {
         },
         episodeIndex: currentEpIndexRef.current,
         progress: time,
-      })
+      }).catch(() => {})
     }
   }
 
@@ -95,14 +137,17 @@ const Detail = () => {
         <Loader2 className="animate-spin text-emerald-500 w-8 h-8" />
       </div>
     )
-  
+
   if (!detail)
     return (
       <div className="h-screen bg-black flex flex-col items-center justify-center text-gray-500 gap-4">
         <Info size={40} />
-        <p>资源不存在或已下架</p>
-        <button onClick={() => navigate(-1)} className="text-white border border-white/20 px-4 py-2 rounded-full text-sm">
-          返回上一页
+        <p>无法加载该资源</p>
+        <button
+          onClick={() => navigate(-1)}
+          className="border border-white/20 px-4 py-2 rounded-full text-sm text-white"
+        >
+          返回
         </button>
       </div>
     )
@@ -110,142 +155,162 @@ const Detail = () => {
   const currentEp = detail.episodes[currentEpIndex]
 
   return (
+    // 最外层容器：标准 Flex 纵向布局
     <div className="min-h-screen bg-[#0a0a0a] text-gray-100 font-sans flex flex-col">
-      
-      {/* --- 播放器区域 (吸顶 + 极高层级) --- */}
-      {/* 修复：使用 sticky top-0 且设置 z-50，确保覆盖在内容之上 */}
-      {/* 修复：背景强制黑色，防止下方文字透上来 */}
-      <div className="sticky top-0 z-50 w-full aspect-video bg-black shadow-2xl shrink-0">
-        
-        {/* 返回按钮 (悬浮在播放器左上角，不再占用独立导航栏) */}
-        <div className="absolute top-0 left-0 w-full h-14 bg-gradient-to-b from-black/60 to-transparent z-[60] pointer-events-none">
-           {/* pointer-events-auto 确保按钮可点击 */}
-           <button 
-             onClick={() => navigate(-1)} 
-             className="absolute top-2 left-2 p-2 pointer-events-auto text-white hover:text-emerald-400 transition-colors"
-           >
-             <ChevronLeft size={28} className="drop-shadow-md" />
-           </button>
-        </div>
+      {/* --- 第一块：播放器 (Sticky 吸顶) --- */}
+      <div className="sticky top-0 z-50 w-full bg-black shrink-0">
+        <div className="aspect-video w-full relative">
+          {/* 返回按钮 */}
+          <button
+            onClick={() => navigate(-1)}
+            className="absolute top-4 left-4 z-20 p-2 bg-black/40 backdrop-blur rounded-full text-white hover:bg-emerald-500 transition-colors"
+          >
+            <ChevronLeft size={20} />
+          </button>
 
-        {currentEp ? (
-          <Player
-            url={currentEp.link}
-            poster={detail.backdrop || detail.poster}
-            initialTime={startTime}
-            onTimeUpdate={(t) => handleSaveHistory(t)}
-          />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2">
-            <Info size={32} />
-            <span className="text-xs">暂无播放源</span>
-          </div>
-        )}
-      </div>
-
-      {/* --- 详情内容区域 (可滚动) --- */}
-      {/* 修复：relative z-10 确保层级低于播放器 */}
-      {/* 修复：bg-[#0a0a0a] 确保背景不透明 */}
-      <div className="flex-1 relative z-10 bg-[#0a0a0a] pb-20 mt-[50px]">
-        
-        {/* 历史记录提示条 */}
-        {startTime > 0 && (
-          <div className="bg-[#121212] border-b border-white/5 px-4 py-2 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-emerald-400">
-              <HistoryIcon size={12} />
-              <span>续播：第{currentEpIndex + 1}集 {Math.floor(startTime / 60)}分{Math.floor(startTime % 60)}秒</span>
-            </div>
-            <button onClick={() => { setStartTime(0); document.querySelector('video')?.load(); }} className="text-gray-500 hover:text-white">
-              从头播放
-            </button>
-          </div>
-        )}
-
-        <div className="p-5 space-y-6">
-          {/* 标题与评分 */}
-          <div className="flex justify-between items-start gap-4">
-            <div className="flex-1">
-              <h1 className="text-xl font-bold text-white leading-snug">{detail.title}</h1>
-              <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-400">
-                <span className="text-emerald-400 font-medium">{detail.year}</span>
-                <span>•</span>
-                <span>{detail.area}</span>
-                <span>•</span>
-                <span className="bg-white/10 px-1.5 py-0.5 rounded text-gray-300">{detail.type}</span>
-              </div>
-            </div>
-            {detail.rating > 0 && (
-              <div className="flex flex-col items-end flex-shrink-0">
-                <span className="text-2xl font-black text-yellow-500 leading-none flex items-center gap-1">
-                  {detail.rating} <span className="text-[10px] font-normal text-gray-600 mt-1">分</span>
-                </span>
-                <div className="flex gap-0.5 mt-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} size={8} className={i < Math.round(detail.rating / 2) ? "fill-yellow-500 text-yellow-500" : "text-gray-700"} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 简介 */}
-          <div className="bg-white/5 p-3 rounded-lg border border-white/5">
-            <p className="text-sm text-gray-300 leading-relaxed text-justify line-clamp-3 active:line-clamp-none transition-all" onClick={(e) => e.currentTarget.classList.toggle('line-clamp-3')}>
-              {detail.overview ? detail.overview.trim() : "暂无简介"}
-            </p>
-            <div className="text-center mt-1">
-               <span className="text-[10px] text-gray-600">点击展开/收起</span>
-            </div>
-          </div>
-
-          {/* 选集 */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-white flex items-center gap-2">
-                <PlayCircle size={16} className="text-emerald-500" /> 
-                选集 <span className="text-xs font-normal text-gray-500">({detail.episodes.length})</span>
-              </h3>
-              <span className="text-[10px] text-gray-600 bg-gray-900 px-2 py-1 rounded">
-                更新至 {detail.episodes[detail.episodes.length - 1]?.name}
-              </span>
-            </div>
-            
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
-              {detail.episodes.map((ep, idx) => {
-                const isActive = idx === currentEpIndex
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => handleEpisodeChange(idx)}
-                    className={`
-                      relative text-xs h-10 rounded-lg transition-all duration-200 font-medium truncate px-1 border
-                      ${isActive 
-                        ? "bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-900/50" 
-                        : "bg-[#161616] border-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
-                      }
-                    `}
-                  >
-                    {isActive && (
-                      <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-white rounded-full animate-pulse shadow-[0_0_5px_white]" />
-                    )}
-                    {ep.name.replace(/第|集/g, "")}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* 演职员表 */}
-          {(detail.actors || detail.director) && (
-            <div className="pt-2 border-t border-white/5">
-              <h3 className="text-sm font-bold text-gray-400 mb-2">演职员信息</h3>
-              <div className="space-y-1 text-xs text-gray-500">
-                {detail.director && <p><span className="text-gray-600 mr-2">导演:</span> {detail.director}</p>}
-                {detail.actors && <p className="leading-5"><span className="text-gray-600 mr-2">主演:</span> {detail.actors}</p>}
-              </div>
+          {currentEp ? (
+            <Player
+              url={currentEp.link}
+              poster={detail.backdrop || detail.poster}
+              initialTime={startTime}
+              onTimeUpdate={handleSaveHistory}
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2 bg-[#111]">
+              <Info size={32} />
+              <span className="text-xs">暂无播放源</span>
             </div>
           )}
         </div>
+      </div>
+
+      {/* --- 第二块：操作条 (截图里的 投屏+弹幕条) --- */}
+      {/* 这里是标准流布局，紧贴播放器下方，绝不重叠 */}
+      <div className="bg-[#121212] px-4 py-3  flex items-center gap-3 border-b border-white/5 shrink-0">
+        <button
+          onClick={() => toast("请使用浏览器自带投屏功能", { icon: "📺" })}
+          className="flex items-center gap-1 text-gray-400 hover:text-white shrink-0"
+        >
+          <Cast size={18} />
+          <span className="text-xs">投屏</span>
+        </button>
+      </div>
+
+      {/* --- 第三块：详情信息 (流式布局) --- */}
+      <div className="p-4 space-y-6 flex-1 overflow-y-auto">
+        {/* 1. 标题和标签 */}
+        <div>
+          <h1 className="text-lg font-bold text-white mb-2 leading-snug">
+            {detail.title}
+          </h1>
+          <div className="flex items-center flex-wrap gap-2">
+            <span className="text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px] font-bold">
+              {detail.year || "2024"}
+            </span>
+            <span className="text-gray-400 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">
+              {detail.area}
+            </span>
+            <span className="text-gray-400 bg-white/5 px-1.5 py-0.5 rounded text-[10px]">
+              {detail.type}
+            </span>
+          </div>
+        </div>
+
+        {/* 2. 简介 (折叠) */}
+        <div
+          className="bg-[#161616] p-3 rounded-xl border border-white/5"
+          onClick={() => setIsDescExpanded(!isDescExpanded)}
+        >
+          <p
+            className={`text-xs text-gray-400 leading-relaxed ${
+              isDescExpanded ? "" : "line-clamp-2"
+            }`}
+          >
+            {detail.overview ? detail.overview.trim() : "暂无简介"}
+          </p>
+          <div className="flex justify-center mt-1">
+            <div
+              className={`w-8 h-1 bg-white/10 rounded-full ${
+                isDescExpanded ? "bg-emerald-500/50" : ""
+              }`}
+            />
+          </div>
+        </div>
+
+        {/* 3. 选集 (常规流式布局，Flex Wrap) */}
+        {/* 你说不要Grid，这里改用 Flex Wrap，更符合"常规流" */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <PlayCircle size={16} className="text-emerald-500" />
+              <h3 className="text-sm font-bold text-white">选集</h3>
+            </div>
+            <span className="text-xs text-gray-500">
+              共 {detail.episodes.length} 集
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2 max-h-80 overflow-y-auto content-start">
+            {detail.episodes.map((ep, idx) => {
+              const isActive = idx === currentEpIndex
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleEpisodeChange(idx)}
+                  // w-[calc(20%-8px)] 意思是每行大约5个，用 flex 模拟 grid
+                  className={`
+                                w-[calc(20%-6.5px)] h-9 rounded-md text-xs font-medium truncate px-1 transition-all
+                                ${
+                                  isActive
+                                    ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/40"
+                                    : "bg-[#1A1A1A] text-gray-400 hover:bg-[#252525]"
+                                }
+                            `}
+                >
+                  {ep.name.replace(/第|集/g, "")}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 4. 相关推荐 (底部模块) */}
+        {recommendations.length > 0 && (
+          <div className="pt-6 mt-6 border-t border-white/5">
+            <div className="flex items-center gap-2 mb-4">
+              <ThumbsUp size={16} className="text-pink-500" />
+              <h3 className="text-sm font-bold text-white">猜你喜欢</h3>
+            </div>
+
+            {/* 推荐列表使用 Grid (封面墙适合 Grid) */}
+            <div className="grid grid-cols-3 gap-3">
+              {recommendations.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    navigate(`/detail/${item.id}`)
+                    window.scrollTo({ top: 0, behavior: "smooth" })
+                  }}
+                  className="space-y-1.5"
+                >
+                  <div className="aspect-[2/3] bg-[#1a1a1a] rounded-lg overflow-hidden relative">
+                    <img
+                      src={item.poster}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    <div className="absolute top-1 right-1 bg-black/60 text-[10px] text-white px-1 rounded backdrop-blur">
+                      {item.rating || "Hot"}
+                    </div>
+                  </div>
+                  <h4 className="text-xs text-gray-300 line-clamp-1">
+                    {item.title}
+                  </h4>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

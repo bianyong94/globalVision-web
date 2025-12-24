@@ -130,29 +130,13 @@ const Home = () => {
         </Swiper>
       </section>
 
-      {/* 2. 快速分类胶囊 */}
-      {/* 🛠️ 修改：添加 touch-pan-x 锁定Y轴滚动 */}
-      <div className="px-4 -mt-4 relative z-20 mb-8 overflow-x-auto no-scrollbar touch-pan-x">
-        <div className="flex gap-3 mt-4">
-          {["动作", "科幻", "爱情", "悬疑", "动画", "恐怖", "喜剧"].map(
-            (cat, i) => (
-              <button
-                key={i}
-                className="whitespace-nowrap px-5 py-2 rounded-full bg-[#1A1A1A] border border-white/5 text-xs text-gray-300 hover:text-white hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all shadow-lg"
-              >
-                {cat}
-              </button>
-            )
-          )}
-        </div>
-      </div>
-
       <div className="space-y-10 pb-6">
         {/* 3. 热门榜单模块 */}
         <section className="pl-4">
           <SectionHeader
             title="本周热榜"
             icon={<Flame className="text-orange-500" />}
+            categoryId={1}
           />
 
           {/* 🛠️ 修改：添加 touch-pan-x 锁定Y轴滚动 */}
@@ -193,6 +177,7 @@ const Home = () => {
           <SectionHeader
             title="热播剧集"
             icon={<Tv className="text-cyan-400" />}
+            categoryId={13}
           />
           {/* 🛠️ 修改：添加 touch-pan-x 锁定Y轴滚动 */}
           <div className="flex overflow-x-auto gap-3 pr-4 pb-2 no-scrollbar touch-pan-x">
@@ -225,6 +210,7 @@ const Home = () => {
           <SectionHeader
             title="动漫新番"
             icon={<Clapperboard className="text-emerald-400" />}
+            categoryId={4}
           />
           <div className="grid grid-cols-3 gap-3">
             {data.animes.map((anime) => (
@@ -268,19 +254,27 @@ const Home = () => {
 const SectionHeader = ({
   title,
   icon,
+  categoryId,
 }: {
   title: string
   icon: React.ReactNode
-}) => (
-  <div className="flex items-center justify-between pr-4 mb-4">
-    <div className="flex items-center gap-2">
-      {icon}
-      <h2 className="text-lg font-bold text-white tracking-wide">{title}</h2>
+  categoryId?: number
+}) => {
+  const navigate = useNavigate()
+  return (
+    <div className="flex items-center justify-between pr-4 mb-4">
+      <div className="flex items-center gap-2">
+        {icon}
+        <h2 className="text-lg font-bold text-white tracking-wide">{title}</h2>
+      </div>
+      <button
+        className="text-xs text-gray-500 flex items-center hover:text-white transition-colors"
+        onClick={() => navigate(`/search?t=${categoryId}`)}
+      >
+        全部 <ChevronRight size={14} />
+      </button>
     </div>
-    <button className="text-xs text-gray-500 flex items-center hover:text-white transition-colors">
-      全部 <ChevronRight size={14} />
-    </button>
-  </div>
-)
+  )
+}
 
 export default Home

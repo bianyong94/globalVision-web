@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>StreamHub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -10,13 +13,13 @@
         theme: {
           extend: {
             colors: {
-              primary: '#e50914', // Netflix red-ish
-              dark: '#141414',
-              darker: '#0b0b0b',
-              surface: '#1f1f1f'
-            }
-          }
-        }
+              primary: "#06b6d4", // Netflix red-ish
+              dark: "#141414",
+              darker: "#0b0b0b",
+              surface: "#1f1f1f",
+            },
+          },
+        },
       }
     </script>
     <style>
@@ -34,21 +37,21 @@
         scrollbar-width: none;
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.11.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "axios": "https://esm.sh/axios@^1.13.2",
-    "hls.js": "https://esm.sh/hls.js@^1.6.15"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+    <script type="importmap">
+      {
+        "imports": {
+          "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+          "react/": "https://esm.sh/react@^19.2.3/",
+          "react": "https://esm.sh/react@^19.2.3",
+          "react-router-dom": "https://esm.sh/react-router-dom@^7.11.0",
+          "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+          "axios": "https://esm.sh/axios@^1.13.2",
+          "hls.js": "https://esm.sh/hls.js@^1.6.15"
+        }
+      }
+    </script>
+    <link rel="stylesheet" href="/index.css" />
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
