@@ -1,106 +1,167 @@
 import React, { useEffect, useRef } from "react"
 import Artplayer from "artplayer"
 import Hls from "hls.js"
+import artplayerPluginDanmuku from "artplayer-plugin-danmuku"
 
 interface PlayerProps {
   url: string
   poster?: string
-  className?: string
+  initialTime?: number // 记忆进度
+  onTimeUpdate?: (currentTime: number) => void // 进度回调
 }
 
-const Player: React.FC<PlayerProps> = ({ url, poster, className }) => {
+const Player: React.FC<PlayerProps> = ({
+  url,
+  poster,
+  initialTime,
+  onTimeUpdate,
+}) => {
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
 
   useEffect(() => {
     if (!artRef.current) return
 
-    // 初始化播放器
+    // 销毁旧实例，防止内存泄漏
+    if (playerRef.current) {
+      playerRef.current.destroy(false)
+    }
+
     const art = new Artplayer({
       container: artRef.current,
       url: url,
       poster: poster,
-      volume: 0.7,
+      volume: 0.5,
       isLive: false,
       muted: false,
-      autoplay: false,
-      autoSize: true, // 自动适配尺寸
-      autoMini: true, // 滚动页面时自动开启迷你模式 (类似B站)
-
-      // 核心功能配置
-      playbackRate: true, // 开启倍速
-      aspectRatio: true, // 开启画面比例切换
-      setting: true, // 开启设置面板
-      pip: true, // 开启画中画
-      fullscreen: true, // 全屏
-      fullscreenWeb: true, // 网页全屏
+      autoplay: true, // 尝试自动播放
+      autoOrientation: true, // 移动端自动旋转
+      
+      // 🔥 核心功能配置
+      pip: true, // 画中画
+      autoSize: true,
+      autoMini: true, // 滚动时小窗
+      setting: true, // 设置面板
+      loop: false,
+      flip: true, // 画面翻转
+      playbackRate: true, // 倍速播放
+      aspectRatio: true, // 比例切换
+      
+      // 🔥 解决 iPhone 全屏问题
+      fullscreen: true, // 允许系统全屏
+      fullscreenWeb: true, // 允许网页全屏 (iOS 推荐用这个保留UI)
+      
+      // 🔥 Loading 效果 (ArtPlayer 自带美观的 Loading)
+      // 当卡顿时会自动显示 loading 图标
+      
       miniProgressBar: true, // 底部迷你进度条
-
-      // 移动端优化 (Bilibili 风格)
+      mutex: true, // 互斥，播放这个时暂停其他
+      backdrop: true,
+      playsInline: true, // iOS 必须开启，防止强制全屏
+      theme: "#22c55e", // 你的主题色 (Emerald-500)
+      
+      // 移动端优化
       moreVideoAttr: {
-        // @ts-ignore
-        "x5-video-player-type": "h5-page", // 微信同层播放优化
-        playsInline: true,
-      },
-      lock: true, // 移动端锁定按钮
-      fastForward: true, // 移动端长按2倍速 (B站核心功能)
-
-      // 缓存配置
-      icons: {
-        loading: '<img src="/assets/loading.svg" width="50" />', // 你可以自定义loading
+        "webkit-playsinline": "true",
+        playsInline: "true",
+        crossOrigin: "anonymous",
       },
 
-      // HLS 集成 (核心性能优化点)
+      // 🔥 清晰度切换逻辑 (仅当源支持多码率时生效)
       customType: {
-        m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+        m3u8: function (video: HTMLMediaElement, url: string, art) {
           if (Hls.isSupported()) {
-            if (art.hls) (art.hls as Hls).destroy()
+            if (art.hls) art.hls.destroy()
             const hls = new Hls()
             hls.loadSource(url)
             hls.attachMedia(video)
             art.hls = hls
+            
+            // 监听解析完成，检查是否有多个清晰度
+            hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+              if (data.levels.length > 1) {
+                // 构建清晰度菜单
+                const quality = data.levels.map((item, index) => {
+                  return {
+                    default: index === data.levels.length - 1, // 默认选最高画质
+                    html: item.name || `画质 ${item.height}P`,
+                    url: url, // hls.js 会自动处理切换，这里传原 url 即可
+                  }
+                })
+                art.quality = quality
+              }
+            })
+
             art.on("destroy", () => hls.destroy())
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = url
           } else {
-            art.notice.show = "Unsupported playback format: m3u8"
+            art.notice.show = "不支持的播放格式: m3u8"
           }
         },
       },
+
+      // 🔥 弹幕插件 (这里模拟数据，真实需要后端弹幕接口)
+      plugins: [
+        artplayerPluginDanmuku({
+          danmuku: [
+            { text: "前方高能预警！", time: 1, color: "#ff0000" },
+            { text: "见证历史", time: 3, color: "#00ff00" },
+            { text: "B站既视感", time: 5, color: "#fff" },
+          ],
+          speed: 5,
+          opacity: 1,
+          fontSize: 14,
+          color: "#ffffff",
+          mode: 0,
+          margin: [10, "25%"],
+          antiOverlap: true,
+          useWorker: true,
+          synchronousPlayback: false,
+        }),
+      ],
+    })
+
+    // 🔥 记忆播放跳转
+    art.on("ready", () => {
+      if (initialTime && initialTime > 0) {
+        art.seek = initialTime
+        art.notice.show = `已为您跳转到上次观看位置 ${formatTime(initialTime)}`
+      }
+    })
+
+    // 进度回调 (用于保存历史)
+    art.on("video:timeupdate", () => {
+      if (onTimeUpdate) {
+        onTimeUpdate(art.currentTime)
+      }
+    })
+    
+    // 错误处理
+    art.on("error", () => {
+        art.notice.show = "视频加载失败，请尝试切换线路";
     })
 
     playerRef.current = art
 
-    // 监听播放错误，自动重试或提示
-    art.on("error", (error) => {
-      console.log("Player Error:", error)
-      art.notice.show = "视频加载失败，请切换源尝试"
-    })
-
     return () => {
-      if (art && art.destroy) {
-        art.destroy(false)
+      if (playerRef.current && playerRef.current.destroy) {
+        playerRef.current.destroy(false)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // 空依赖，只初始化一次
-
-  // 监听 URL 变化，实现无刷新切换 (性能优化)
-  useEffect(() => {
-    if (playerRef.current && url) {
-      console.log("Switching URL:", url)
-      playerRef.current.switchUrl(url)
-      if (poster) playerRef.current.poster = poster
-    }
-  }, [url, poster])
+  }, [url])
 
   return (
-    <div
-      ref={artRef}
-      className={`w-full aspect-video bg-black ${className}`}
-      style={{ zIndex: 10 }}
-    />
+    // 强制黑色背景，防止闪屏
+    <div ref={artRef} className="w-full h-full bg-black" />
   )
+}
+
+// 辅助时间格式化
+function formatTime(seconds: number) {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s < 10 ? "0" + s : s}`
 }
 
 export default Player
