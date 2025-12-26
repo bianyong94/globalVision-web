@@ -83,7 +83,7 @@ export const fetchCategories = async (): Promise<Category[]> => {
 export const askAI = async (question: string): Promise<string[]> => {
   // 使用 api 实例调用，享受全局拦截器处理错误
   const response = await api.post("/ai/ask", { question })
-  
+
   // 后端返回结构为 { code: 200, data: ["电影1", "电影2"] }
   // 做个防御性检查，确保返回的是数组
   return Array.isArray(response.data.data) ? response.data.data : []

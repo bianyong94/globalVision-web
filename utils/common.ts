@@ -1,4 +1,4 @@
-// 专门处理图片的工具函数
+// 处理图片的工具函数
 export const getProxyUrl = (url: string) => {
   if (!url) return ""
   // 如果已经是 https 且看起来很快的源，可以跳过 (可选)
