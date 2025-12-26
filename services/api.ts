@@ -133,3 +133,16 @@ export const saveHistory = async (payload: {
 }) => {
   await api.post("/user/history", payload)
 }
+
+// 🔥 [新增] 清空历史记录
+export const clearUserHistory = async (username: string): Promise<boolean> => {
+  try {
+    const response = await api.delete(
+      `/user/history?username=${encodeURIComponent(username)}`
+    )
+    return response.data.code === 200
+  } catch (error) {
+    console.error("清空历史失败", error)
+    return false
+  }
+}

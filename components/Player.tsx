@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react"
 import Artplayer from "artplayer"
 import Hls from "hls.js"
+import artplayerPluginDanmuku from "artplayer-plugin-danmuku"
 
 interface PlayerProps {
   url: string
@@ -19,7 +20,6 @@ const Player: React.FC<PlayerProps> = ({
 }) => {
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
-  // 新增：用 ref 存 Hls 实例，确保能销毁
   const hlsRef = useRef<Hls | null>(null)
 
   useEffect(() => {
@@ -33,27 +33,37 @@ const Player: React.FC<PlayerProps> = ({
       volume: 0.7,
       isLive: false,
       muted: false,
-      autoplay: true, // 自动播放
+      autoplay: true,
+
+      // 🔥 投屏相关配置
+      airplay: true, // 开启 AirPlay 按钮 (Mac/iOS)
+
+      // 🔥 播放器功能
       autoSize: true,
       autoMini: true,
       playbackRate: true,
       aspectRatio: true,
-      setting: true,
+      setting: true, // 开启设置面板 (画质切换会显示在这里)
       pip: true,
       fullscreen: true,
       fullscreenWeb: true,
       miniProgressBar: true,
-      moreVideoAttr: {
-        // @ts-ignore
-        "x5-video-player-type": "h5-page",
-        playsInline: true,
-      },
       lock: true,
       fastForward: true,
 
+      // 移动端优化属性
+      moreVideoAttr: {
+        "x5-video-player-type": "h5-page",
+        "x5-video-player-fullscreen": "false",
+        playsinline: "true",
+        "webkit-playsinline": "true",
+        "x-webkit-airplay": "allow", // 允许 AirPlay
+      },
+
+      // HLS 集成与画质切换逻辑
       customType: {
         m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
-          // 先销毁旧的
+          // 销毁旧实例
           if (hlsRef.current) {
             hlsRef.current.destroy()
             hlsRef.current = null
@@ -63,9 +73,35 @@ const Player: React.FC<PlayerProps> = ({
             const hls = new Hls()
             hls.loadSource(url)
             hls.attachMedia(video)
-            hlsRef.current = hls // 存入 ref
+            hlsRef.current = hls
 
-            // 监听错误，自动恢复
+            // 🔥 核心：监听解析完成，构建画质菜单
+            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+              // 只有当存在多个 Level (画质) 时才显示切换菜单
+              if (data.levels.length > 1) {
+                const quality = data.levels.map((level, index) => {
+                  return {
+                    default: index === data.levels.length - 1, // 默认选最高画质
+                    html: level.height
+                      ? `${level.height}P`
+                      : `画质 ${index + 1}`,
+                    level: index, // 自定义属性，存 index
+                  }
+                })
+
+                // 添加“自动”选项
+                quality.unshift({
+                  default: false,
+                  html: "自动",
+                  level: -1,
+                })
+
+                // 更新 Artplayer 的画质列表
+                art.quality = quality
+              }
+            })
+
+            // 错误自动恢复
             hls.on(Hls.Events.ERROR, (event, data) => {
               if (data.fatal) {
                 switch (data.type) {
@@ -82,12 +118,22 @@ const Player: React.FC<PlayerProps> = ({
               }
             })
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            // Safari 原生支持 HLS (无法手动切换画质，由系统自动调节)
             video.src = url
           } else {
             art.notice.show = "Unsupported playback format: m3u8"
           }
         },
       },
+    })
+
+    // 🔥 监听画质切换事件 (无缝切换)
+    art.on("video:quality", (item: any) => {
+      if (hlsRef.current) {
+        // -1 代表自动，其他代表具体的 Level Index
+        hlsRef.current.currentLevel = item.level
+        art.notice.show = `已切换至: ${item.html}`
+      }
     })
 
     // 2. 跳转到历史进度
@@ -97,7 +143,7 @@ const Player: React.FC<PlayerProps> = ({
       })
     }
 
-    // 3. 监听进度更新，汇报给父组件
+    // 3. 监听进度更新
     art.on("video:timeupdate", () => {
       if (onTimeUpdate && art.currentTime > 0) {
         onTimeUpdate(art.currentTime)
@@ -106,34 +152,35 @@ const Player: React.FC<PlayerProps> = ({
 
     playerRef.current = art
 
-    // 4. ⚡️ 核心修复：组件卸载时的清理逻辑
+    // 4. 清理
     return () => {
-      console.log("🛑 正在销毁播放器...")
-
-      // 先销毁 HLS (最重要！)
       if (hlsRef.current) {
-        hlsRef.current.stopLoad() // 停止下载 .ts
+        hlsRef.current.stopLoad()
         hlsRef.current.detachMedia()
         hlsRef.current.destroy()
         hlsRef.current = null
       }
-
-      // 再销毁 Artplayer
       if (art && art.destroy) {
         art.destroy(false)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []) // 只在初始化时执行一次，切集走下面的 useEffect
 
-  // 监听 URL 变化实现切集
+  // 监听 URL 变化实现切集 (平滑切换)
   useEffect(() => {
     if (playerRef.current && url) {
-      // 切集时也要先停止当前的 HLS 加载，否则可能会串流
+      // 停止 HLS 加载
       if (hlsRef.current) {
         hlsRef.current.stopLoad()
+        hlsRef.current.detachMedia()
+        // 这里的 destroy 是必须的，因为 customType.m3u8 会重新创建 hls 实例
+        hlsRef.current.destroy()
+        hlsRef.current = null
       }
+
+      // ArtPlayer 切换 URL 会重新触发 customType.m3u8
       playerRef.current.switchUrl(url)
+
       if (poster) playerRef.current.poster = poster
     }
   }, [url, poster])

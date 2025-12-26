@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from "react"
 import { useAuth } from "../context/AuthContext"
-import { askAI, login, register, fetchHistory } from "../services/api"
+import {
+  askAI,
+  login,
+  register,
+  fetchHistory,
+  clearUserHistory,
+} from "../services/api"
 import { useNavigate, Link } from "react-router-dom"
 import { getProxyUrl } from "../utils/common"
 
@@ -16,7 +22,10 @@ import {
   Loader2,
   Search as SearchIcon,
   Play,
+  Trash2,
+  AlertCircle,
 } from "lucide-react"
+import toast from "react-hot-toast" // 引入 toast 提示
 
 const Profile = () => {
   const { user, loginUser, logoutUser, isAuthenticated } = useAuth()
@@ -106,6 +115,28 @@ const Profile = () => {
     return `第${index + 1}集`
   }
 
+  // 🔥 [新增] 处理清空历史
+  const handleClearHistory = async () => {
+    if (!user || history.length === 0) return
+
+    // 简单确认框
+    const isConfirmed = window.confirm(
+      "确定要清空所有观看记录吗？此操作不可恢复。"
+    )
+    if (!isConfirmed) return
+
+    const success = await clearUserHistory(user.username)
+    if (success) {
+      setHistory([]) // 清空界面
+      toast.success("历史记录已清空")
+
+      // 同步更新本地存储 (可选，视你的 AuthContext 实现而定)
+      // const updatedUser = { ...user, history: [] }
+      // loginUser(updatedUser)
+    } else {
+      toast.error("清空失败，请重试")
+    }
+  }
   // --- 1. 未登录视图 ---
   if (!isAuthenticated) {
     return (
@@ -253,10 +284,21 @@ const Profile = () => {
           <div className="flex items-center justify-between px-1">
             <h3 className="text-sm font-bold text-gray-400 flex items-center gap-2">
               <History size={16} /> 观看历史
+              <span className="text-xs text-gray-600">
+                {history.length} 条记录
+              </span>
             </h3>
-            <span className="text-xs text-gray-600">
-              {history.length} 条记录
-            </span>
+            <div>
+              {/* 🔥 [新增] 清空按钮 (只有有记录时才显示) */}
+              {history.length > 0 && (
+                <button
+                  onClick={handleClearHistory}
+                  className="flex items-center gap-1 text-xs text-red-500/80 hover:text-red-500 bg-red-500/10 px-2 py-1 rounded transition-colors"
+                >
+                  <Trash2 size={12} /> 清空
+                </button>
+              )}
+            </div>
           </div>
 
           {historyLoading ? (
