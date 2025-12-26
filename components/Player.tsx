@@ -1,167 +1,150 @@
 import React, { useEffect, useRef } from "react"
 import Artplayer from "artplayer"
 import Hls from "hls.js"
-import artplayerPluginDanmuku from "artplayer-plugin-danmuku"
 
 interface PlayerProps {
   url: string
   poster?: string
-  initialTime?: number // 记忆进度
-  onTimeUpdate?: (currentTime: number) => void // 进度回调
+  className?: string
+  initialTime?: number
+  onTimeUpdate?: (time: number) => void
 }
 
 const Player: React.FC<PlayerProps> = ({
   url,
   poster,
+  className,
   initialTime,
   onTimeUpdate,
 }) => {
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
+  // 新增：用 ref 存 Hls 实例，确保能销毁
+  const hlsRef = useRef<Hls | null>(null)
 
   useEffect(() => {
     if (!artRef.current) return
 
-    // 销毁旧实例，防止内存泄漏
-    if (playerRef.current) {
-      playerRef.current.destroy(false)
-    }
-
+    // 1. 初始化播放器
     const art = new Artplayer({
       container: artRef.current,
       url: url,
       poster: poster,
-      volume: 0.5,
+      volume: 0.7,
       isLive: false,
       muted: false,
-      autoplay: true, // 尝试自动播放
-      autoOrientation: true, // 移动端自动旋转
-
-      // 🔥 核心功能配置
-      pip: true, // 画中画
+      autoplay: true, // 自动播放
       autoSize: true,
-      autoMini: true, // 滚动时小窗
-      setting: true, // 设置面板
-      loop: false,
-      flip: true, // 画面翻转
-      playbackRate: true, // 倍速播放
-      aspectRatio: true, // 比例切换
-
-      // 🔥 解决 iPhone 全屏问题
-      fullscreen: true, // 允许系统全屏
-      fullscreenWeb: true, // 允许网页全屏 (iOS 推荐用这个保留UI)
-
-      // 🔥 Loading 效果 (ArtPlayer 自带美观的 Loading)
-      // 当卡顿时会自动显示 loading 图标
-
-      miniProgressBar: true, // 底部迷你进度条
-      mutex: true, // 互斥，播放这个时暂停其他
-      backdrop: true,
-      playsInline: true, // iOS 必须开启，防止强制全屏
-      theme: "#22c55e", // 你的主题色 (Emerald-500)
-
-      // 移动端优化
+      autoMini: true,
+      playbackRate: true,
+      aspectRatio: true,
+      setting: true,
+      pip: true,
+      fullscreen: true,
+      fullscreenWeb: true,
+      miniProgressBar: true,
       moreVideoAttr: {
-        "webkit-playsinline": "true",
-        playsInline: "true",
-        crossOrigin: "anonymous",
+        // @ts-ignore
+        "x5-video-player-type": "h5-page",
+        playsInline: true,
       },
+      lock: true,
+      fastForward: true,
 
-      // 🔥 清晰度切换逻辑 (仅当源支持多码率时生效)
       customType: {
-        m3u8: function (video: HTMLMediaElement, url: string, art) {
+        m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+          // 先销毁旧的
+          if (hlsRef.current) {
+            hlsRef.current.destroy()
+            hlsRef.current = null
+          }
+
           if (Hls.isSupported()) {
-            if (art.hls) art.hls.destroy()
             const hls = new Hls()
             hls.loadSource(url)
             hls.attachMedia(video)
-            art.hls = hls
+            hlsRef.current = hls // 存入 ref
 
-            // 监听解析完成，检查是否有多个清晰度
-            hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-              if (data.levels.length > 1) {
-                // 构建清晰度菜单
-                const quality = data.levels.map((item, index) => {
-                  return {
-                    default: index === data.levels.length - 1, // 默认选最高画质
-                    html: item.name || `画质 ${item.height}P`,
-                    url: url, // hls.js 会自动处理切换，这里传原 url 即可
-                  }
-                })
-                art.quality = quality
+            // 监听错误，自动恢复
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    hls.startLoad()
+                    break
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    hls.recoverMediaError()
+                    break
+                  default:
+                    hls.destroy()
+                    break
+                }
               }
             })
-
-            art.on("destroy", () => hls.destroy())
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = url
           } else {
-            art.notice.show = "不支持的播放格式: m3u8"
+            art.notice.show = "Unsupported playback format: m3u8"
           }
         },
       },
-
-      // 🔥 弹幕插件 (这里模拟数据，真实需要后端弹幕接口)
-      plugins: [
-        // artplayerPluginDanmuku({
-        //   danmuku: [
-        //     { text: "前方高能预警！", time: 1, color: "#ff0000" },
-        //     { text: "见证历史", time: 3, color: "#00ff00" },
-        //     { text: "B站既视感", time: 5, color: "#fff" },
-        //   ],
-        //   speed: 5,
-        //   opacity: 1,
-        //   fontSize: 14,
-        //   color: "#ffffff",
-        //   mode: 0,
-        //   margin: [10, "25%"],
-        //   antiOverlap: true,
-        //   useWorker: true,
-        //   synchronousPlayback: false,
-        // }),
-      ],
     })
 
-    // 🔥 记忆播放跳转
-    art.on("ready", () => {
-      if (initialTime && initialTime > 0) {
+    // 2. 跳转到历史进度
+    if (initialTime && initialTime > 0) {
+      art.on("ready", () => {
         art.seek = initialTime
-        art.notice.show = `已为您跳转到上次观看位置 ${formatTime(initialTime)}`
-      }
-    })
+      })
+    }
 
-    // 进度回调 (用于保存历史)
+    // 3. 监听进度更新，汇报给父组件
     art.on("video:timeupdate", () => {
-      if (onTimeUpdate) {
+      if (onTimeUpdate && art.currentTime > 0) {
         onTimeUpdate(art.currentTime)
       }
     })
 
-    // 错误处理
-    art.on("error", () => {
-      art.notice.show = "视频加载失败，请尝试切换线路"
-    })
-
     playerRef.current = art
 
+    // 4. ⚡️ 核心修复：组件卸载时的清理逻辑
     return () => {
-      if (playerRef.current && playerRef.current.destroy) {
-        playerRef.current.destroy(false)
+      console.log("🛑 正在销毁播放器...")
+
+      // 先销毁 HLS (最重要！)
+      if (hlsRef.current) {
+        hlsRef.current.stopLoad() // 停止下载 .ts
+        hlsRef.current.detachMedia()
+        hlsRef.current.destroy()
+        hlsRef.current = null
+      }
+
+      // 再销毁 Artplayer
+      if (art && art.destroy) {
+        art.destroy(false)
       }
     }
-  }, [url])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 监听 URL 变化实现切集
+  useEffect(() => {
+    if (playerRef.current && url) {
+      // 切集时也要先停止当前的 HLS 加载，否则可能会串流
+      if (hlsRef.current) {
+        hlsRef.current.stopLoad()
+      }
+      playerRef.current.switchUrl(url)
+      if (poster) playerRef.current.poster = poster
+    }
+  }, [url, poster])
 
   return (
-    // 强制黑色背景，防止闪屏
-    <div ref={artRef} className="w-full h-full bg-black" />
+    <div
+      ref={artRef}
+      className={`w-full h-full bg-black ${className}`}
+      style={{ zIndex: 10 }}
+    />
   )
-}
-
-// 辅助时间格式化
-function formatTime(seconds: number) {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s < 10 ? "0" + s : s}`
 }
 
 export default Player

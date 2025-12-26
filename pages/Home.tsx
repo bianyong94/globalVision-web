@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { fetchHomeData } from "../services/api"
 import { HomeData } from "../types"
+import { getProxyUrl } from "../utils/common"
 import {
   Play,
   Info,
@@ -77,7 +78,8 @@ const Home = () => {
               {/* 背景图 + 遮罩 */}
               <div className="absolute inset-0">
                 <img
-                  src={item.backdrop || item.poster}
+                  loading="lazy"
+                  src={getProxyUrl(item.backdrop || item.poster)}
                   alt={item.title}
                   className="w-full h-full object-cover object-top"
                 />
@@ -152,7 +154,7 @@ const Home = () => {
                 {/* 海报 */}
                 <div className="w-full aspect-[2/3] rounded-lg overflow-hidden border border-white/10 relative z-10 shadow-2xl bg-[#1a1a1a]">
                   <img
-                    src={movie.poster}
+                    src={getProxyUrl(movie.poster)}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                     loading="lazy"
                     alt={movie.title}
@@ -189,7 +191,7 @@ const Home = () => {
               >
                 <div className="aspect-[2/3] rounded-lg overflow-hidden mb-2 relative group">
                   <img
-                    src={tv.poster}
+                    src={getProxyUrl(tv.poster)}
                     className="w-full h-full object-cover group-hover:opacity-80 transition-opacity bg-[#1a1a1a]"
                     loading="lazy"
                     alt={tv.title}
@@ -221,7 +223,7 @@ const Home = () => {
               >
                 <div className="aspect-[2/3] rounded-lg overflow-hidden bg-[#1a1a1a] border border-white/5 relative">
                   <img
-                    src={anime.poster}
+                    src={getProxyUrl(anime.poster)}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
                     alt={anime.title}

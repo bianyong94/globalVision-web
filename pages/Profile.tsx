@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react"
 import { useAuth } from "../context/AuthContext"
 import { askAI, login, register, fetchHistory } from "../services/api"
 import { useNavigate, Link } from "react-router-dom"
+import { getProxyUrl } from "../utils/common"
+
 import {
   LogOut,
   History,
@@ -272,7 +274,7 @@ const Profile = () => {
                   {/* 海报容器 */}
                   <div className="aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 relative border border-white/5">
                     <img
-                      src={item.poster}
+                      src={getProxyUrl(item.poster)}
                       className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
                       loading="lazy"
                     />

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react"
 import { useParams, useNavigate } from "react-router-dom"
+import { getProxyUrl } from "../utils/common"
 import {
   fetchVideoDetail,
   fetchVideos,
@@ -106,10 +107,31 @@ const Detail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.username])
 
+  // 记录上一次保存的时间点，防止同一秒内重复发送
+  const lastSavedTimeRef = useRef(0)
   // 2. 历史记录保存
+  // 修改 handleSaveHistory 函数
   const handleSaveHistory = (time: number) => {
+    // 1. 登录检查：没登录直接走
     if (!user || !detailRef.current) return
-    if (time > 5 && time % 5 === 0) {
+
+    // 2. 取整：把 5.123 变成 5
+    const currentTimeInt = Math.floor(time)
+
+    // 3. 核心判断逻辑：
+    // - 播放超过 5 秒
+    // - 是 5 的倍数 (5, 10, 15...)
+    // - 且 这一秒还没保存过 (防止 5.1秒存一次, 5.3秒又存一次)
+    if (
+      currentTimeInt > 5 &&
+      currentTimeInt % 5 === 0 &&
+      currentTimeInt !== lastSavedTimeRef.current
+    ) {
+      // console.log("🚀 触发保存历史:", currentTimeInt); // 打开这行可以在前端控制台看到触发
+
+      // 立即更新标记，防止重复
+      lastSavedTimeRef.current = currentTimeInt
+
       saveHistory({
         username: user.username,
         video: {
@@ -119,8 +141,10 @@ const Detail = () => {
           type: detailRef.current.type,
         },
         episodeIndex: currentEpIndexRef.current,
-        progress: time,
-      }).catch(() => {})
+        progress: time, // 存入数据库的还是要精确时间，方便下次精确续播
+      }).catch((err) => {
+        console.error("保存失败:", err)
+      })
     }
   }
 
@@ -295,7 +319,7 @@ const Detail = () => {
                 >
                   <div className="aspect-[2/3] bg-[#1a1a1a] rounded-lg overflow-hidden relative">
                     <img
-                      src={item.poster}
+                      src={getProxyUrl(item.poster)}
                       className="w-full h-full object-cover"
                       loading="lazy"
                     />
