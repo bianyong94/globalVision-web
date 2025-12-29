@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { fetchCategories, fetchVideos } from "../services/api"
@@ -17,19 +17,32 @@ import {
   Clapperboard,
   Music,
   Globe,
+  LayoutGrid,
+  List as ListIcon,
+  Trophy,
 } from "lucide-react"
 
 // --- 1. 常量定义 ---
-const YEARS = []
-for (let i = 0; i < 10; i++) {
-  const year = new Date().getFullYear() - i
-  YEARS.push(String(year))
+
+const YEARS: string[] = []
+const currentYear = new Date().getFullYear()
+for (let i = 0; i < 12; i++) {
+  YEARS.push(String(currentYear - i))
 }
 YEARS.push("更早")
-const SORTS = [
-  { label: "最新", value: "time", icon: <Clock size={12} /> },
-  { label: "最热", value: "hits", icon: <Flame size={12} /> },
-  { label: "评分", value: "score", icon: <Sparkles size={12} /> },
+
+const VIEW_MODES = [
+  { value: "grid", icon: <LayoutGrid size={14} />, label: "网格" },
+  { value: "list", icon: <ListIcon size={14} />, label: "列表" },
+]
+
+// 体育专属虚拟子分类
+const SPORTS_SUB_CATS = [
+  { name: "全部体育", keyword: "体育" },
+  { name: "篮球", keyword: "NBA" },
+  { name: "足球", keyword: "足球" },
+  { name: "F1", keyword: "F1" },
+  { name: "斯诺克", keyword: "斯诺克" },
 ]
 
 const CATEGORY_TABS = [
@@ -37,54 +50,37 @@ const CATEGORY_TABS = [
     id: 1,
     name: "电影",
     icon: <Film size={14} />,
-    childrenKeywords: [
-      "动作",
-      "喜剧",
-      "爱情",
-      "科幻",
-      "恐怖",
-      "剧情",
-      "战争",
-      "灾难",
-      "微电影",
-      "伦理",
-    ],
+    defaultId: 1,
+    childrenIds: [6, 7, 8, 9, 10, 11, 12, 20, 34, 35, 43, 45],
   },
   {
     id: 2,
     name: "剧集",
     icon: <Tv size={14} />,
-    childrenKeywords: [
-      "国产",
-      "港台",
-      "日韩",
-      "欧美",
-      "海外",
-      "泰国",
-      "香港",
-      "台湾",
-      "韩国",
-      "日本",
-      "美国",
-    ],
+    defaultId: 2,
+    childrenIds: [13, 14, 15, 16, 21, 22, 23, 24, 46],
   },
   {
     id: 4,
     name: "动漫",
     icon: <Clapperboard size={14} />,
-    childrenKeywords: ["动漫", "动画", "新番"],
+    defaultId: 4,
+    childrenIds: [29, 30, 31, 32, 33],
   },
   {
     id: 3,
     name: "综艺",
     icon: <Music size={14} />,
-    childrenKeywords: ["综艺", "真人秀", "晚会"],
+    defaultId: 3,
+    childrenIds: [25, 26, 27, 28],
   },
   {
-    id: 20,
-    name: "纪录片",
-    icon: <Globe size={14} />,
-    childrenKeywords: ["纪录", "记录", "解说", "篮球", "足球", "体育"],
+    id: 99,
+    name: "体育",
+    icon: <Trophy size={14} />,
+    defaultId: null,
+    childrenIds: [],
+    isVirtual: true,
   },
 ]
 
@@ -93,18 +89,36 @@ const STORAGE_KEY = "GV_SEARCH_STATE"
 const Search = () => {
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // --- 初始化逻辑 ---
   const [initialState] = useState(() => {
     const savedStateJSON = sessionStorage.getItem(STORAGE_KEY)
     const savedState = savedStateJSON ? JSON.parse(savedStateJSON) : {}
+
     const urlQ = searchParams.get("q")
     const urlT = searchParams.get("t")
+
     const q = urlQ !== null ? urlQ : savedState.q || ""
     const t = urlT !== null ? urlT : savedState.t || ""
     const year = savedState.year || ""
-    const sort = savedState.sort || "time"
-    const activeParentTab = t ? Number(t) || null : q ? null : 1
+    const viewMode = savedState.viewMode || "grid"
+
+    let activeParentTab = null
+
+    if (q && SPORTS_SUB_CATS.some((s) => s.keyword === q)) {
+      activeParentTab = 99
+    } else if (t) {
+      const tNum = Number(t)
+      const parent = CATEGORY_TABS.find(
+        (p) => p.id === tNum || p.childrenIds?.includes(tNum)
+      )
+      if (parent) activeParentTab = parent.id
+    } else if (!q) {
+      activeParentTab = 1
+    }
+
     const selectedCategory = t || (q ? "" : 1)
-    return { q, t: selectedCategory, year, sort, activeParentTab }
+
+    return { q, t: selectedCategory, year, viewMode, activeParentTab }
   })
 
   // --- State ---
@@ -117,19 +131,24 @@ const Search = () => {
     initialState.t
   )
   const [selectedYear, setSelectedYear] = useState(initialState.year)
-  const [selectedSort, setSelectedSort] = useState(initialState.sort)
+  const [viewMode, setViewMode] = useState<"grid" | "list">(
+    initialState.viewMode
+  )
 
   const [pullY, setPullY] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const touchStartRef = useRef(0)
+
+  // 🟢 修复：这里只保留 loadMoreRef，删除了 lastVideoElementRef 的相关代码
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
+  // --- Persistence ---
   useEffect(() => {
     const stateToSave = {
       q: activeKeyword,
       t: selectedCategory,
       year: selectedYear,
-      sort: selectedSort,
+      viewMode,
     }
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave))
     setSearchParams(
@@ -139,19 +158,13 @@ const Search = () => {
         else newParams.delete("q")
         if (selectedCategory) newParams.set("t", String(selectedCategory))
         else newParams.delete("t")
-        if (newParams.toString() !== prev.toString()) return newParams
-        return prev
+        return newParams
       },
       { replace: true }
     )
-  }, [
-    activeKeyword,
-    selectedCategory,
-    selectedYear,
-    selectedSort,
-    setSearchParams,
-  ])
+  }, [activeKeyword, selectedCategory, selectedYear, viewMode, setSearchParams])
 
+  // --- API ---
   const { data: allApiCategories = [] } = useQuery({
     queryKey: ["categories"],
     queryFn: fetchCategories,
@@ -167,24 +180,14 @@ const Search = () => {
     refetch,
     isError,
   } = useInfiniteQuery({
-    queryKey: [
-      "videos",
-      activeKeyword,
-      selectedCategory,
-      selectedYear,
-      selectedSort,
-    ],
+    queryKey: ["videos", activeKeyword, selectedCategory, selectedYear],
     queryFn: async ({ pageParam = 1, signal }) => {
       const res = await fetchVideos(
         {
           wd: activeKeyword,
           t: selectedCategory,
-          year:
-            selectedYear === "全部" || selectedYear === "更早"
-              ? ""
-              : selectedYear,
+          year: selectedYear === "更早" ? "" : selectedYear,
           pg: pageParam,
-          by: selectedSort,
         },
         signal
       )
@@ -196,16 +199,9 @@ const Search = () => {
     },
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
-      const currentPage = Number(lastPage.page)
-      const totalPages = Number(lastPage.pagecount)
-      if (
-        !isNaN(currentPage) &&
-        !isNaN(totalPages) &&
-        currentPage < totalPages
-      ) {
-        return currentPage + 1
-      }
-      return undefined
+      const curr = Number(lastPage.page)
+      const total = Number(lastPage.pagecount)
+      return curr < total ? curr + 1 : undefined
     },
     staleTime: 1000 * 60 * 5,
     placeholderData: (prev) => prev,
@@ -213,47 +209,22 @@ const Search = () => {
 
   const videos = data?.pages.flatMap((page) => page.list) || []
   const isEmpty = !isFetching && videos.length === 0
-
-  // 🔴 核心状态判断：是否正在进行"筛选刷新" (不是加载更多，不是下拉刷新)
-  // 当 isFetching 为 true，但不是在加载下一页，且也不是下拉刷新时，说明是用户点了分类或搜索
   const isFilterLoading = isFetching && !isFetchingNextPage && !isRefreshing
 
+  // --- 滚动监听 (监听 loadMoreRef) ---
   useEffect(() => {
-    const currentTarget = loadMoreRef.current
-    if (!currentTarget) return
+    const el = loadMoreRef.current
+    if (!el) return
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage)
           fetchNextPage()
-        }
       },
       { threshold: 0.1, rootMargin: "200px" }
     )
-    observer.observe(currentTarget)
-    return () => {
-      if (currentTarget) observer.unobserve(currentTarget)
-    }
+    observer.observe(el)
+    return () => observer.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
-
-  useEffect(() => {
-    const query = searchParams.get("q")
-    if (query !== null && query !== activeKeyword) {
-      setInputValue(query)
-      setActiveKeyword(query)
-      setActiveParentTab(null)
-      setSelectedCategory("")
-    }
-  }, [searchParams])
-
-  useEffect(() => {
-    if (inputValue === "" && activeKeyword !== "") {
-      setActiveKeyword("")
-      if (!activeParentTab) {
-        setActiveParentTab(1)
-        setSelectedCategory(1)
-      }
-    }
-  }, [inputValue])
 
   // --- Handlers ---
   const handleSubmit = (e: React.FormEvent) => {
@@ -262,34 +233,51 @@ const Search = () => {
       setActiveKeyword(inputValue.trim())
       setActiveParentTab(null)
       setSelectedCategory("")
-      setSearchParams((prev) => {
-        if (inputValue.trim()) prev.set("q", inputValue.trim())
-        else prev.delete("q")
-        prev.delete("t")
-        return prev
-      })
       ;(document.activeElement as HTMLElement)?.blur()
     }
   }
 
-  const handleParentTabClick = (parentId: number) => {
-    if (activeParentTab === parentId && !activeKeyword) return
-    // 切换分类时，为了体验更好，建议滚动到顶部
+  useEffect(() => {
+    if (!inputValue && activeKeyword) {
+      setActiveKeyword("")
+      if (!activeParentTab) {
+        setActiveParentTab(1)
+        setSelectedCategory(1)
+      }
+    }
+  }, [inputValue])
+
+  const handleParentTabClick = (tab: (typeof CATEGORY_TABS)[0]) => {
     window.scrollTo({ top: 0, behavior: "auto" })
-    setActiveParentTab(parentId)
-    setSelectedCategory(parentId)
-    setInputValue("")
-    setActiveKeyword("")
-    setSearchParams((prev) => {
-      prev.set("t", String(parentId))
-      prev.delete("q")
-      return prev
-    })
+    setActiveParentTab(tab.id)
+
+    if (tab.id === 99) {
+      setSelectedCategory("")
+      setActiveKeyword("NBA")
+      setInputValue("NBA")
+    } else {
+      setSelectedCategory(tab.defaultId || "")
+      setActiveKeyword("")
+      setInputValue("")
+    }
   }
 
-  const handleSubCategoryClick = (id: number) => {
+  const handleSubCategoryClick = (
+    id: number | string,
+    isVirtual: boolean,
+    keyword?: string
+  ) => {
     window.scrollTo({ top: 0, behavior: "auto" })
-    setSelectedCategory(id)
+
+    if (isVirtual && keyword) {
+      setSelectedCategory("")
+      setActiveKeyword(keyword)
+      setInputValue(keyword)
+    } else {
+      setSelectedCategory(id)
+      setActiveKeyword("")
+      setInputValue("")
+    }
   }
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -309,15 +297,74 @@ const Search = () => {
     setPullY(0)
   }
 
-  const currentSubCategories = allApiCategories.filter((cat) => {
-    if (!activeParentTab) return false
-    if (String(cat.type_id) === String(activeParentTab)) return false
-    const parent = CATEGORY_TABS.find((p) => p.id === activeParentTab)
-    if (!parent) return false
-    return parent.childrenKeywords.some((keyword) =>
-      cat.type_name.includes(keyword)
+  const renderSubCategories = () => {
+    if (!activeParentTab) return null
+
+    if (activeParentTab === 99) {
+      return SPORTS_SUB_CATS.map((sub) => (
+        <button
+          key={sub.name}
+          onClick={() => handleSubCategoryClick(0, true, sub.keyword)}
+          className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
+            activeKeyword === sub.keyword
+              ? "bg-white text-black border-white font-bold"
+              : "bg-transparent text-gray-400 border-white/10"
+          }`}
+        >
+          {sub.name}
+        </button>
+      ))
+    }
+
+    const currentSubCats = allApiCategories.filter((cat) => {
+      const parentConfig = CATEGORY_TABS.find((p) => p.id === activeParentTab)
+      return parentConfig?.childrenIds?.includes(Number(cat.type_id))
+    })
+
+    return (
+      <>
+        <button
+          onClick={() => {
+            const parent = CATEGORY_TABS.find((p) => p.id === activeParentTab)
+            if (parent) setSelectedCategory(parent.defaultId || "")
+            window.scrollTo(0, 0)
+          }}
+          className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
+            String(selectedCategory) ===
+            String(
+              CATEGORY_TABS.find((p) => p.id === activeParentTab)?.defaultId
+            )
+              ? "bg-white text-black border-white font-bold"
+              : "bg-transparent text-gray-400 border-white/10"
+          }`}
+        >
+          推荐
+        </button>
+
+        {currentSubCats
+          .filter(
+            (sub) =>
+              String(sub.type_id) !==
+              String(
+                CATEGORY_TABS.find((p) => p.id === activeParentTab)?.defaultId
+              )
+          )
+          .map((sub) => (
+            <button
+              key={sub.type_id}
+              onClick={() => handleSubCategoryClick(sub.type_id, false)}
+              className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
+                String(selectedCategory) === String(sub.type_id)
+                  ? "bg-white text-black border-white font-bold"
+                  : "bg-transparent text-gray-400 border-white/10"
+              }`}
+            >
+              {sub.type_name}
+            </button>
+          ))}
+      </>
     )
-  })
+  }
 
   return (
     <div
@@ -326,9 +373,9 @@ const Search = () => {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* 下拉 Loading */}
+      {/* Pull Loading */}
       <div
-        className="fixed top-16 left-0 right-0 flex justify-center z-40 transition-all duration-300 pointer-events-none"
+        className="fixed top-16 left-0 right-0 flex justify-center z-40 pointer-events-none transition-all"
         style={{
           transform: `translateY(${
             pullY > 0 ? pullY : isRefreshing ? 50 : 0
@@ -345,11 +392,10 @@ const Search = () => {
         </div>
       </div>
 
-      {/* 顶部搜索 */}
+      {/* Top Search */}
       <div className="sticky top-0 z-30 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3">
         <form onSubmit={handleSubmit}>
           <div className="relative flex items-center bg-[#121212] rounded-full border border-white/10 focus-within:border-emerald-500/50 transition-colors">
-            {/* 🟢 优化：如果正在过滤加载，左侧显示 Spinner */}
             {isFilterLoading ? (
               <Loader2
                 size={16}
@@ -358,7 +404,6 @@ const Search = () => {
             ) : (
               <SearchIcon size={16} className="absolute left-3 text-gray-500" />
             )}
-
             <input
               type="search"
               placeholder="搜索影片..."
@@ -382,7 +427,7 @@ const Search = () => {
         </form>
       </div>
 
-      {/* 筛选区 */}
+      {/* Filters */}
       <div className="pt-2 pb-2">
         {/* 一级分类 */}
         <div className="flex items-center gap-4 px-4 overflow-x-auto no-scrollbar border-b border-white/5">
@@ -405,7 +450,7 @@ const Search = () => {
           {CATEGORY_TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => handleParentTabClick(tab.id)}
+              onClick={() => handleParentTabClick(tab)}
               className={`
                 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-all relative
                 ${
@@ -430,52 +475,24 @@ const Search = () => {
           }`}
         >
           <div className="flex items-center gap-2 px-4 overflow-x-auto no-scrollbar">
-            <button
-              onClick={() => {
-                setSelectedCategory(activeParentTab!)
-                window.scrollTo(0, 0)
-              }}
-              className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
-                String(selectedCategory) === String(activeParentTab)
-                  ? "bg-white text-black border-white font-bold"
-                  : "bg-transparent text-gray-400 border-white/10"
-              }`}
-            >
-              全部
-            </button>
-            {currentSubCategories.map((sub) => (
-              <button
-                key={sub.type_id}
-                onClick={() => handleSubCategoryClick(sub.type_id)}
-                className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
-                  String(selectedCategory) === String(sub.type_id)
-                    ? "bg-white text-black border-white font-bold"
-                    : "bg-transparent text-gray-400 border-white/10"
-                }`}
-              >
-                {sub.type_name}
-              </button>
-            ))}
+            {renderSubCategories()}
           </div>
         </div>
 
         {/* 排序与年份 */}
         <div className="flex items-center gap-2 px-4 mt-3 overflow-x-auto no-scrollbar pb-2">
           <div className="flex gap-1 pr-3 border-r border-white/10 mr-1 flex-shrink-0">
-            {SORTS.map((sort) => (
+            {VIEW_MODES.map((mode) => (
               <button
-                key={sort.value}
-                onClick={() => {
-                  setSelectedSort(sort.value)
-                  window.scrollTo(0, 0)
-                }}
-                className={`p-1.5 rounded-md ${
-                  selectedSort === sort.value
+                key={mode.value}
+                onClick={() => setViewMode(mode.value as "grid" | "list")}
+                className={`p-1.5 rounded-md transition-colors ${
+                  viewMode === mode.value
                     ? "bg-emerald-500/20 text-emerald-400"
-                    : "text-gray-500"
+                    : "text-gray-600"
                 }`}
               >
-                {sort.icon}
+                {mode.icon}
               </button>
             ))}
           </div>
@@ -498,13 +515,11 @@ const Search = () => {
         </div>
       </div>
 
-      {/* 结果列表容器 */}
-      {/* ⚡️ 添加 relative，为 Loading 遮罩提供定位基准 */}
+      {/* 结果列表 */}
       <div
         className="px-4 mt-2 min-h-[50vh] transition-transform duration-300 relative"
         style={{ transform: `translateY(${pullY}px)` }}
       >
-        {/* 🟢 新增：过滤/搜索时的悬浮遮罩 Loading */}
         {isFilterLoading && videos.length > 0 && (
           <div className="absolute inset-0 z-20 bg-[#050505]/70 backdrop-blur-[2px] flex items-start justify-center pt-32 transition-all duration-300">
             <div className="bg-[#1a1a1a] px-5 py-3 rounded-full border border-white/10 shadow-2xl flex items-center gap-3">
@@ -516,31 +531,68 @@ const Search = () => {
           </div>
         )}
 
-        {/* 初次加载 Loading (只有当完全没有旧数据时才显示骨架屏) */}
         {isFetching && !isFetchingNextPage && videos.length === 0 && (
-          <div className="grid grid-cols-3 gap-3 animate-pulse">
+          <div
+            className={
+              viewMode === "grid"
+                ? "grid grid-cols-3 gap-3 animate-pulse"
+                : "flex flex-col gap-3 animate-pulse"
+            }
+          >
             {[...Array(9)].map((_, i) => (
               <div
                 key={i}
-                className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5"
+                className={`bg-white/5 rounded-lg border border-white/5 ${
+                  viewMode === "grid" ? "aspect-[2/3]" : "h-24"
+                }`}
               ></div>
             ))}
           </div>
         )}
 
-        {/* 列表数据 */}
         {videos.length > 0 && (
           <div
-            className={`grid grid-cols-3 gap-3 transition-opacity duration-300 ${
-              isFilterLoading ? "opacity-50" : "opacity-100"
-            }`}
+            className={
+              viewMode === "grid"
+                ? "grid grid-cols-3 gap-3"
+                : "flex flex-col gap-3"
+            }
           >
-            {videos.map((v, index) => (
-              <VideoCard
-                key={`${v.id}-${index}`}
-                video={{ ...v, rating: v.rating || 0.0 }}
-              />
-            ))}
+            {videos.map((v, index) => {
+              const displayVideo = { ...v, rating: v.rating || 0.0 }
+
+              if (viewMode === "list") {
+                return (
+                  <div
+                    key={`${v.id}-${index}`}
+                    className="flex gap-3 p-2 bg-[#1a1a1a] rounded-lg border border-white/5 active:scale-[0.98] transition-transform cursor-pointer"
+                    onClick={() => (window.location.href = `/detail/${v.id}`)}
+                  >
+                    <div className="w-20 aspect-[2/3] rounded overflow-hidden flex-shrink-0 bg-gray-800">
+                      <img
+                        src={v.poster}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div className="flex-1 py-1 flex flex-col justify-center min-w-0">
+                      <h3 className="text-sm font-bold text-gray-200 truncate">
+                        {v.title}
+                      </h3>
+                      <div className="text-xs text-gray-500 mt-2 space-y-1">
+                        <p>
+                          {v.year} · {v.type}
+                        </p>
+                        <p className="truncate">{v.remarks}</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
+
+              // 网格模式：🔴 修复点：移除了 ref={lastVideoElementRef}，因为触底检测由下面的 div 负责
+              return <VideoCard key={`${v.id}-${index}`} video={displayVideo} />
+            })}
           </div>
         )}
 
@@ -553,15 +605,13 @@ const Search = () => {
           </div>
         )}
 
-        {/* 触底检测 */}
+        {/* 🟢 触底加载哨兵 */}
         <div ref={loadMoreRef} className="py-6 flex justify-center w-full">
           {isFetchingNextPage ? (
             <div className="flex items-center gap-2 text-emerald-500 text-xs px-4 py-2 rounded-full bg-emerald-500/10">
               <Loader2 className="animate-spin" size={14} /> 加载中...
             </div>
-          ) : hasNextPage ? (
-            <span className="text-xs text-gray-600">上滑加载更多</span>
-          ) : videos.length > 0 ? (
+          ) : !hasNextPage && videos.length > 0 ? (
             <span className="text-[10px] text-gray-600 uppercase tracking-widest">
               - END -
             </span>

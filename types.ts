@@ -31,6 +31,7 @@ export interface HomeData {
   // 新增
   varieties: VideoSummary[]
   documentaries: VideoSummary[]
+  sports: VideoSummary[]
 }
 
 export interface SearchResult {
