@@ -1,25 +1,20 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useMemo } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { fetchCategories, fetchVideos } from "../services/api"
-import { VideoSummary } from "../types"
 import VideoCard from "../components/VideoCard"
 import {
   Search as SearchIcon,
   Loader2,
-  Clock,
-  Flame,
-  Sparkles,
-  XCircle,
   Film,
   RefreshCw,
   Tv,
   Clapperboard,
   Music,
-  Globe,
-  LayoutGrid,
+  XCircle,
   List as ListIcon,
   Trophy,
+  LayoutGrid,
 } from "lucide-react"
 
 // --- 1. 常量定义 ---
@@ -36,7 +31,7 @@ const VIEW_MODES = [
   { value: "list", icon: <ListIcon size={14} />, label: "列表" },
 ]
 
-// 体育专属虚拟子分类
+// 体育专属虚拟子分类 (保持不变)
 const SPORTS_SUB_CATS = [
   { name: "全部体育", keyword: "体育" },
   { name: "篮球", keyword: "NBA" },
@@ -45,49 +40,85 @@ const SPORTS_SUB_CATS = [
   { name: "斯诺克", keyword: "斯诺克" },
 ]
 
-const CATEGORY_TABS = [
-  {
-    id: 1,
-    name: "电影",
-    icon: <Film size={14} />,
-    defaultId: 1,
-    childrenIds: [6, 7, 8, 9, 10, 11, 12, 20, 34, 35, 43, 45],
-  },
-  {
-    id: 2,
-    name: "剧集",
-    icon: <Tv size={14} />,
-    defaultId: 2,
-    childrenIds: [13, 14, 15, 16, 21, 22, 23, 24, 46],
-  },
-  {
-    id: 4,
-    name: "动漫",
-    icon: <Clapperboard size={14} />,
-    defaultId: 4,
-    childrenIds: [29, 30, 31, 32, 33],
-  },
-  {
-    id: 3,
-    name: "综艺",
-    icon: <Music size={14} />,
-    defaultId: 3,
-    childrenIds: [25, 26, 27, 28],
-  },
-  {
-    id: 99,
-    name: "体育",
-    icon: <Trophy size={14} />,
-    defaultId: null,
-    childrenIds: [],
-    isVirtual: true,
-  },
+// ✨ 核心修改 1：UI 配置与 ID 解耦
+// 这里只定义界面上显示什么 Tab，不再写死 ID
+const CATEGORY_UI_CONFIG = [
+  { key: "movie", name: "电影", icon: <Film size={14} /> },
+  { key: "tv", name: "剧集", icon: <Tv size={14} /> },
+  { key: "anime", name: "动漫", icon: <Clapperboard size={14} /> },
+  { key: "variety", name: "综艺", icon: <Music size={14} /> },
+  { key: "sports", name: "体育", icon: <Trophy size={14} />, isVirtual: true },
 ]
 
 const STORAGE_KEY = "GV_SEARCH_STATE"
 
 const Search = () => {
   const [searchParams, setSearchParams] = useSearchParams()
+
+  // --- API ---
+  const { data: allApiCategories = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: fetchCategories,
+    staleTime: 1000 * 60 * 60 * 24,
+  })
+
+  // ✨ 核心修改 2：智能分类算法 (完美解决 ID 错乱)
+  // 将 API 返回的扁平数据，根据名字关键词，自动归类到 UI Tab 下
+  const categorizedData = useMemo(() => {
+    // 初始化容器
+    const buckets: Record<string, { rootId: string | number; children: any[] }> = {
+      movie: { rootId: "", children: [] },
+      tv: { rootId: "", children: [] },
+      anime: { rootId: "", children: [] },
+      variety: { rootId: "", children: [] },
+    }
+
+    allApiCategories.forEach((cat: any) => {
+      const name = cat.type_name || ""
+      const id = cat.type_id
+      
+      // 1. 寻找根分类 ID (用于"全部"按钮)
+      // 如果 API 里有一个分类叫 "电影" 或 "全部电影"，它就是大类入口
+      if (name === "电影" || name === "全部电影" || name === "片库") buckets.movie.rootId = id
+      if (name === "电视剧" || name === "连续剧" || name === "电视连续剧" || name === "剧集") buckets.tv.rootId = id
+      if (name === "动漫" || name === "全集动漫" || name === "动漫大全") buckets.anime.rootId = id
+      if (name === "综艺" || name === "综艺频道" || name === "综艺大全") buckets.variety.rootId = id
+
+      // 2. 归类子分类 (基于关键词正则)
+      // 排除掉 root 本身，避免子分类里出现"电影"这种大词
+      if (Object.values(buckets).some(b => b.rootId === id)) return
+
+      // --- 动漫判断 (优先级最高，防止"动画片"被归为电影) ---
+      if (/动漫|动画/.test(name)) {
+        buckets.anime.children.push(cat)
+        return
+      }
+
+      // --- 综艺判断 ---
+      if (/综艺/.test(name)) {
+        buckets.variety.children.push(cat)
+        return
+      }
+
+      // --- 剧集判断 (防止"日剧"跑进电影) ---
+      // 只要名字里有"剧"，且不含"动画/动漫"，都算剧集
+      if (/剧|连续剧/.test(name) && !/动画|动漫/.test(name)) {
+        buckets.tv.children.push(cat)
+        return
+      }
+
+      // --- 电影判断 (剩余带"片"的，或者特定类型) ---
+      if (
+        /片|电影|微电影/.test(name) ||
+        /动作|喜剧|爱情|科幻|恐怖|剧情|战争|记录|纪录|灾难|悬疑|犯罪|奇幻|预告|伦理/.test(name)
+      ) {
+        buckets.movie.children.push(cat)
+        return
+      }
+    })
+
+    return buckets
+  }, [allApiCategories])
 
   // --- 初始化逻辑 ---
   const [initialState] = useState(() => {
@@ -101,46 +132,50 @@ const Search = () => {
     const t = urlT !== null ? urlT : savedState.t || ""
     const year = savedState.year || ""
     const viewMode = savedState.viewMode || "grid"
-
-    let activeParentTab = null
-
+    
+    // 初始化 Tab：使用 key 而不是 ID
+    let activeTabKey = "movie" // 默认电影
     if (q && SPORTS_SUB_CATS.some((s) => s.keyword === q)) {
-      activeParentTab = 99
+      activeTabKey = "sports"
     } else if (t) {
-      const tNum = Number(t)
-      const parent = CATEGORY_TABS.find(
-        (p) => p.id === tNum || p.childrenIds?.includes(tNum)
-      )
-      if (parent) activeParentTab = parent.id
+      // 根据 t (ID) 反查属于哪个 Tab
+      for (const [key, data] of Object.entries(categorizedData)) {
+         // 如果 ID 匹配 RootId 或者 子分类 ID，就选中该 Tab
+         if (String(data.rootId) === String(t) || data.children.some((c:any) => String(c.type_id) === String(t))) {
+           activeTabKey = key
+           break
+         }
+      }
     } else if (!q) {
-      activeParentTab = 1
+      activeTabKey = "movie"
     }
 
-    const selectedCategory = t || (q ? "" : 1)
-
-    return { q, t: selectedCategory, year, viewMode, activeParentTab }
+    return { q, t, year, viewMode, activeTabKey }
   })
 
   // --- State ---
   const [inputValue, setInputValue] = useState(initialState.q)
   const [activeKeyword, setActiveKeyword] = useState(initialState.q)
-  const [activeParentTab, setActiveParentTab] = useState<number | null>(
-    initialState.activeParentTab
-  )
-  const [selectedCategory, setSelectedCategory] = useState<number | string>(
-    initialState.t
-  )
+  
+  // 使用 Key (string) 而不是 ID 来控制 Tab
+  const [activeTabKey, setActiveTabKey] = useState<string>(initialState.activeTabKey)
+  
+  const [selectedCategory, setSelectedCategory] = useState<number | string>(initialState.t)
   const [selectedYear, setSelectedYear] = useState(initialState.year)
-  const [viewMode, setViewMode] = useState<"grid" | "list">(
-    initialState.viewMode
-  )
+  const [viewMode, setViewMode] = useState<"grid" | "list">(initialState.viewMode)
 
   const [pullY, setPullY] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const touchStartRef = useRef(0)
-
-  // 🟢 修复：这里只保留 loadMoreRef，删除了 lastVideoElementRef 的相关代码
   const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  // --- 修正：异步数据回来后，如果没有选中分类，自动设置当前Tab的默认推荐 ---
+  useEffect(() => {
+    if (!selectedCategory && !activeKeyword && activeTabKey !== "sports" && categorizedData[activeTabKey]?.rootId) {
+      setSelectedCategory(categorizedData[activeTabKey].rootId)
+    }
+  }, [categorizedData, activeTabKey, selectedCategory, activeKeyword])
+
 
   // --- Persistence ---
   useEffect(() => {
@@ -164,13 +199,7 @@ const Search = () => {
     )
   }, [activeKeyword, selectedCategory, selectedYear, viewMode, setSearchParams])
 
-  // --- API ---
-  const { data: allApiCategories = [] } = useQuery({
-    queryKey: ["categories"],
-    queryFn: fetchCategories,
-    staleTime: 1000 * 60 * 60 * 24,
-  })
-
+  // --- API Request ---
   const {
     data,
     fetchNextPage,
@@ -211,7 +240,7 @@ const Search = () => {
   const isEmpty = !isFetching && videos.length === 0
   const isFilterLoading = isFetching && !isFetchingNextPage && !isRefreshing
 
-  // --- 滚动监听 (监听 loadMoreRef) ---
+  // --- Scroll Observer ---
   useEffect(() => {
     const el = loadMoreRef.current
     if (!el) return
@@ -231,32 +260,38 @@ const Search = () => {
     e.preventDefault()
     if (inputValue.trim() !== activeKeyword) {
       setActiveKeyword(inputValue.trim())
-      setActiveParentTab(null)
+      // 搜索时，取消分类选中
+      setActiveTabKey("") 
       setSelectedCategory("")
       ;(document.activeElement as HTMLElement)?.blur()
     }
   }
 
+  // 清空搜索时的逻辑
   useEffect(() => {
     if (!inputValue && activeKeyword) {
       setActiveKeyword("")
-      if (!activeParentTab) {
-        setActiveParentTab(1)
-        setSelectedCategory(1)
+      // 如果之前是在全网搜索，清空后默认回电影
+      if (!activeTabKey) {
+        setActiveTabKey("movie")
+        // 设置为电影的 rootId
+        if (categorizedData.movie?.rootId) setSelectedCategory(categorizedData.movie.rootId)
       }
     }
-  }, [inputValue])
+  }, [inputValue, categorizedData])
 
-  const handleParentTabClick = (tab: (typeof CATEGORY_TABS)[0]) => {
+  const handleTabClick = (key: string) => {
     window.scrollTo({ top: 0, behavior: "auto" })
-    setActiveParentTab(tab.id)
+    setActiveTabKey(key)
 
-    if (tab.id === 99) {
+    if (key === "sports") {
       setSelectedCategory("")
       setActiveKeyword("NBA")
       setInputValue("NBA")
     } else {
-      setSelectedCategory(tab.defaultId || "")
+      // 获取该分类的 rootId (例如 "电视剧" 的 ID)
+      const defaultId = categorizedData[key]?.rootId || ""
+      setSelectedCategory(defaultId)
       setActiveKeyword("")
       setInputValue("")
     }
@@ -280,6 +315,7 @@ const Search = () => {
     }
   }
 
+  // --- Touch Logic (Pull to Refresh) ---
   const handleTouchStart = (e: React.TouchEvent) => {
     if (window.scrollY === 0) touchStartRef.current = e.touches[0].clientY
   }
@@ -297,10 +333,12 @@ const Search = () => {
     setPullY(0)
   }
 
+  // --- Render Helpers ---
   const renderSubCategories = () => {
-    if (!activeParentTab) return null
+    if (!activeTabKey) return null
 
-    if (activeParentTab === 99) {
+    // 1. 体育特殊处理
+    if (activeTabKey === "sports") {
       return SPORTS_SUB_CATS.map((sub) => (
         <button
           key={sub.name}
@@ -316,52 +354,45 @@ const Search = () => {
       ))
     }
 
-    const currentSubCats = allApiCategories.filter((cat) => {
-      const parentConfig = CATEGORY_TABS.find((p) => p.id === activeParentTab)
-      return parentConfig?.childrenIds?.includes(Number(cat.type_id))
-    })
+    // 2. 常规分类渲染
+    const currentGroup = categorizedData[activeTabKey]
+    if (!currentGroup) return null
+
+    const { rootId, children } = currentGroup
 
     return (
       <>
-        <button
-          onClick={() => {
-            const parent = CATEGORY_TABS.find((p) => p.id === activeParentTab)
-            if (parent) setSelectedCategory(parent.defaultId || "")
-            window.scrollTo(0, 0)
-          }}
-          className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
-            String(selectedCategory) ===
-            String(
-              CATEGORY_TABS.find((p) => p.id === activeParentTab)?.defaultId
-            )
-              ? "bg-white text-black border-white font-bold"
-              : "bg-transparent text-gray-400 border-white/10"
-          }`}
-        >
-          推荐
-        </button>
+        {/* "全部/推荐" 按钮 -> 对应 Root ID */}
+        {rootId && (
+          <button
+            onClick={() => {
+              setSelectedCategory(rootId)
+              window.scrollTo(0, 0)
+            }}
+            className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
+              String(selectedCategory) === String(rootId)
+                ? "bg-white text-black border-white font-bold"
+                : "bg-transparent text-gray-400 border-white/10"
+            }`}
+          >
+            全部
+          </button>
+        )}
 
-        {currentSubCats
-          .filter(
-            (sub) =>
-              String(sub.type_id) !==
-              String(
-                CATEGORY_TABS.find((p) => p.id === activeParentTab)?.defaultId
-              )
-          )
-          .map((sub) => (
-            <button
-              key={sub.type_id}
-              onClick={() => handleSubCategoryClick(sub.type_id, false)}
-              className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
-                String(selectedCategory) === String(sub.type_id)
-                  ? "bg-white text-black border-white font-bold"
-                  : "bg-transparent text-gray-400 border-white/10"
-              }`}
-            >
-              {sub.type_name}
-            </button>
-          ))}
+        {/* 子分类按钮 */}
+        {children.map((sub: any) => (
+          <button
+            key={sub.type_id}
+            onClick={() => handleSubCategoryClick(sub.type_id, false)}
+            className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
+              String(selectedCategory) === String(sub.type_id)
+                ? "bg-white text-black border-white font-bold"
+                : "bg-transparent text-gray-400 border-white/10"
+            }`}
+          >
+            {sub.type_name}
+          </button>
+        ))}
       </>
     )
   }
@@ -373,7 +404,7 @@ const Search = () => {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* Pull Loading */}
+      {/* Loading Spinner for Pull Refresh */}
       <div
         className="fixed top-16 left-0 right-0 flex justify-center z-40 pointer-events-none transition-all"
         style={{
@@ -392,7 +423,7 @@ const Search = () => {
         </div>
       </div>
 
-      {/* Top Search */}
+      {/* Header Search Bar */}
       <div className="sticky top-0 z-30 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3">
         <form onSubmit={handleSubmit}>
           <div className="relative flex items-center bg-[#121212] rounded-full border border-white/10 focus-within:border-emerald-500/50 transition-colors">
@@ -427,51 +458,52 @@ const Search = () => {
         </form>
       </div>
 
-      {/* Filters */}
+      {/* Category Tabs */}
       <div className="pt-2 pb-2">
-        {/* 一级分类 */}
+        {/* Level 1: Main Tabs */}
         <div className="flex items-center gap-4 px-4 overflow-x-auto no-scrollbar border-b border-white/5">
           <button
             onClick={() => {
-              setActiveParentTab(null)
+              setActiveTabKey("")
               setSelectedCategory("")
               setInputValue("")
               setActiveKeyword("")
               window.scrollTo(0, 0)
             }}
             className={`py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-all ${
-              !activeParentTab
+              !activeTabKey
                 ? "border-emerald-500 text-white"
                 : "border-transparent text-gray-500"
             }`}
           >
             全局搜索
           </button>
-          {CATEGORY_TABS.map((tab) => (
+          
+          {CATEGORY_UI_CONFIG.map((tab) => (
             <button
-              key={tab.id}
-              onClick={() => handleParentTabClick(tab)}
+              key={tab.key}
+              onClick={() => handleTabClick(tab.key)}
               className={`
-                py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-all relative
+                py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-all relative flex items-center gap-1.5
                 ${
-                  activeParentTab === tab.id
+                  activeTabKey === tab.key
                     ? "border-emerald-500 text-white"
                     : "border-transparent text-gray-500 hover:text-gray-300"
                 }
               `}
             >
               {tab.name}
-              {activeParentTab === tab.id && (
+              {activeTabKey === tab.key && (
                 <span className="absolute inset-x-0 -bottom-0.5 h-0.5 bg-emerald-500 shadow-[0_-2px_10px_rgba(16,185,129,0.5)]" />
               )}
             </button>
           ))}
         </div>
 
-        {/* 二级分类 */}
+        {/* Level 2: Sub Categories */}
         <div
           className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            activeParentTab ? "max-h-14 opacity-100 mt-3" : "max-h-0 opacity-0"
+            activeTabKey ? "max-h-14 opacity-100 mt-3" : "max-h-0 opacity-0"
           }`}
         >
           <div className="flex items-center gap-2 px-4 overflow-x-auto no-scrollbar">
@@ -479,7 +511,7 @@ const Search = () => {
           </div>
         </div>
 
-        {/* 排序与年份 */}
+        {/* Level 3: View Mode & Year Filter */}
         <div className="flex items-center gap-2 px-4 mt-3 overflow-x-auto no-scrollbar pb-2">
           <div className="flex gap-1 pr-3 border-r border-white/10 mr-1 flex-shrink-0">
             {VIEW_MODES.map((mode) => (
@@ -515,7 +547,7 @@ const Search = () => {
         </div>
       </div>
 
-      {/* 结果列表 */}
+      {/* Video Grid/List */}
       <div
         className="px-4 mt-2 min-h-[50vh] transition-transform duration-300 relative"
         style={{ transform: `translateY(${pullY}px)` }}
@@ -573,6 +605,7 @@ const Search = () => {
                         src={v.poster}
                         className="w-full h-full object-cover"
                         loading="lazy"
+                        alt={v.title}
                       />
                     </div>
                     <div className="flex-1 py-1 flex flex-col justify-center min-w-0">
@@ -589,8 +622,6 @@ const Search = () => {
                   </div>
                 )
               }
-
-              // 网格模式：🔴 修复点：移除了 ref={lastVideoElementRef}，因为触底检测由下面的 div 负责
               return <VideoCard key={`${v.id}-${index}`} video={displayVideo} />
             })}
           </div>
@@ -605,7 +636,7 @@ const Search = () => {
           </div>
         )}
 
-        {/* 🟢 触底加载哨兵 */}
+        {/* Load More Trigger */}
         <div ref={loadMoreRef} className="py-6 flex justify-center w-full">
           {isFetchingNextPage ? (
             <div className="flex items-center gap-2 text-emerald-500 text-xs px-4 py-2 rounded-full bg-emerald-500/10">
