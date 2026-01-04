@@ -2,10 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- 移动端视口优化 -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
+    <link rel="manifest" href="/manifest.json" />
+    <!-- iOS 专用配置 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="全球影视" />
+    <!-- iOS 图标 (重要：没有这个，添加到桌面就是网页截图) -->
+    <link rel="icon" href="/logo-192.png" />
+    <link rel="apple-touch-icon" href="/logo-192.png" />
     <title>StreamHub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -20,6 +32,11 @@
             },
           },
         },
+      }
+    </script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js")
       }
     </script>
     <style>

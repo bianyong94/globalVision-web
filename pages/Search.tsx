@@ -15,6 +15,7 @@ import {
   List as ListIcon,
   Trophy,
   LayoutGrid,
+  MoreHorizontal,
 } from "lucide-react"
 
 // --- 1. 常量定义 ---
@@ -31,7 +32,7 @@ const VIEW_MODES = [
   { value: "list", icon: <ListIcon size={14} />, label: "列表" },
 ]
 
-// 体育专属虚拟子分类 (保持不变)
+// 体育专属虚拟子分类
 const SPORTS_SUB_CATS = [
   { name: "全部体育", keyword: "体育" },
   { name: "篮球", keyword: "NBA" },
@@ -40,17 +41,27 @@ const SPORTS_SUB_CATS = [
   { name: "斯诺克", keyword: "斯诺克" },
 ]
 
-// ✨ 核心修改：仅定义 UI Tab，不再绑定具体 ID
-// typeKey 用于后续匹配归类逻辑
 const CATEGORY_UI_CONFIG = [
   { key: "movie", name: "电影", icon: <Film size={14} /> },
   { key: "tv", name: "剧集", icon: <Tv size={14} /> },
   { key: "anime", name: "动漫", icon: <Clapperboard size={14} /> },
   { key: "variety", name: "综艺", icon: <Music size={14} /> },
-  { key: "sports", name: "体育", icon: <Trophy size={14} />, isVirtual: true },
+  // 现在体育不是虚拟的了，是真实存在的分类
+  { key: "sports", name: "体育", icon: <Trophy size={14} /> },
+  // ✨ 新增“其他” Tab
+  { key: "other", name: "精选", icon: <MoreHorizontal size={14} /> },
 ]
 
 const STORAGE_KEY = "GV_SEARCH_STATE"
+
+interface CategoryData {
+  rootId: number
+  children: Array<{
+    type_id: string
+    type_name: string
+    type_pid: string
+  }>
+}
 
 const Search = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -62,66 +73,29 @@ const Search = () => {
     staleTime: 1000 * 60 * 60 * 24,
   })
 
-  // ✨ 核心逻辑：智能分类算法
-  // 将 API 返回的扁平数据，根据名字关键词，自动归类到 UI Tab 下
   const categorizedData = useMemo(() => {
-    const buckets: Record<
-      string,
-      { rootId: string | number; children: any[] }
-    > = {
-      movie: { rootId: "", children: [] },
-      tv: { rootId: "", children: [] },
-      anime: { rootId: "", children: [] },
-      variety: { rootId: "", children: [] },
+    // 1. 初始化篮子 (ID 必须与 server.js 定义的 STANDARD_GROUPS 一致)
+    const buckets: Record<string, { rootId: number; children: any[] }> = {
+      movie: { rootId: 1, children: [] },
+      tv: { rootId: 2, children: [] },
+      variety: { rootId: 3, children: [] },
+      anime: { rootId: 4, children: [] },
+      sports: { rootId: 5, children: [] }, // 现在体育也是后端返回的一等公民了
     }
 
     allApiCategories.forEach((cat: any) => {
-      const name = cat.type_name || ""
-      const id = cat.type_id
+      const pid = parseInt(cat.type_pid)
+      const id = parseInt(cat.type_id)
 
-      // 1. 寻找根分类 ID (用于"全部"按钮)
-      // 如果 API 里有一个分类叫 "电影" 或 "电视剧"，它通常是大类入口
-      if (name === "电影" || name === "全部电影") buckets.movie.rootId = id
-      if (name === "电视剧" || name === "连续剧" || name === "电视连续剧")
-        buckets.tv.rootId = id
-      if (name === "动漫" || name === "全集动漫") buckets.anime.rootId = id
-      if (name === "综艺" || name === "综艺频道") buckets.variety.rootId = id
+      // 如果是父类自己，跳过 (rootId 已经预设好了)
+      if (pid === 0) return
 
-      // 2. 归类子分类 (基于关键词正则)
-      // 排除掉 root 本身，避免子分类里出现"电影"
-      if (buckets.movie.rootId === id) return
-      if (buckets.tv.rootId === id) return
-      if (buckets.anime.rootId === id) return
-      if (buckets.variety.rootId === id) return
-
-      // --- 动漫判断 (优先级最高，防止"动画片"被归为电影) ---
-      if (/动漫|动画/.test(name)) {
-        buckets.anime.children.push(cat)
-        return
-      }
-
-      // --- 综艺判断 ---
-      if (/综艺/.test(name)) {
-        buckets.variety.children.push(cat)
-        return
-      }
-
-      // --- 剧集判断 ---
-      if (/剧|连续剧/.test(name) && !/动画|动漫/.test(name)) {
-        buckets.tv.children.push(cat)
-        return
-      }
-
-      // --- 电影判断 (剩余带"片"的，或者特定类型) ---
-      if (
-        /片|电影|微电影/.test(name) ||
-        /动作|喜剧|爱情|科幻|恐怖|剧情|战争|记录|纪录|灾难|悬疑|犯罪|奇幻|预告/.test(
-          name
-        )
-      ) {
-        buckets.movie.children.push(cat)
-        return
-      }
+      // 2. 傻瓜式归类：后端说它是谁，它就是谁
+      if (pid === 1) buckets.movie.children.push(cat)
+      else if (pid === 2) buckets.tv.children.push(cat)
+      else if (pid === 3) buckets.variety.children.push(cat)
+      else if (pid === 4) buckets.anime.children.push(cat)
+      else if (pid === 5) buckets.sports.children.push(cat)
     })
 
     return buckets
@@ -140,20 +114,27 @@ const Search = () => {
     const year = savedState.year || ""
     const viewMode = savedState.viewMode || "grid"
 
-    // 初始化 Tab：如果有 keyword 且是体育相关
-    let activeTabKey = "movie" // 默认电影
+    // 初始化 Tab
+    let activeTabKey = "movie"
     if (q && SPORTS_SUB_CATS.some((s) => s.keyword === q)) {
       activeTabKey = "sports"
     } else if (t) {
       // 根据 t (ID) 反查属于哪个 Tab
-      // 遍历 categorizedData 找 ID
-      for (const [key, data] of Object.entries(categorizedData)) {
-        if (
-          String(data.rootId) === String(t) ||
-          data.children.some((c: any) => String(c.type_id) === String(t))
-        ) {
-          activeTabKey = key
-          break
+      const targetId = parseInt(t)
+      // 检查是否是 RootID
+      if (targetId === 1) activeTabKey = "movie"
+      else if (targetId === 2) activeTabKey = "tv"
+      else if (targetId === 3) activeTabKey = "variety"
+      else if (targetId === 4) activeTabKey = "anime"
+      else {
+        // 检查子分类
+        for (const [key, data] of Object.entries(categorizedData)) {
+          if (
+            data.children.some((c: any) => parseInt(c.type_id) === targetId)
+          ) {
+            activeTabKey = key
+            break
+          }
         }
       }
     } else if (!q) {
@@ -166,12 +147,9 @@ const Search = () => {
   // --- State ---
   const [inputValue, setInputValue] = useState(initialState.q)
   const [activeKeyword, setActiveKeyword] = useState(initialState.q)
-
-  // 使用 Key (string) 而不是 ID 来控制 Tab
   const [activeTabKey, setActiveTabKey] = useState<string>(
     initialState.activeTabKey
   )
-
   const [selectedCategory, setSelectedCategory] = useState<number | string>(
     initialState.t
   )
@@ -185,18 +163,35 @@ const Search = () => {
   const touchStartRef = useRef(0)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
-  // --- 修正：确保初始加载时，如果 API 数据刚回来，能正确设置默认 ID ---
+  // --- 修正：切换 Tab 时，自动选中该 Tab 的 Root ID ---
+  // 仅在手动切换 Tab 或初始化且无选中子分类时触发
   useEffect(() => {
-    // 只有当没有选中分类，且不在搜索模式，且不是体育时，才自动设置当前 Tab 的默认推荐 ID
-    if (
-      !selectedCategory &&
-      !activeKeyword &&
-      activeTabKey !== "sports" &&
-      categorizedData[activeTabKey]?.rootId
-    ) {
-      setSelectedCategory(categorizedData[activeTabKey].rootId)
+    // 1. 如果正在搜索，不干扰
+    if (activeKeyword && activeTabKey !== "sports") return
+    // 2. 体育 Tab 特殊逻辑
+    if (activeTabKey === "sports") {
+      if (!activeKeyword) {
+        // 如果切到体育但没关键词，默认给第一个
+        setActiveKeyword(SPORTS_SUB_CATS[0].keyword)
+        setInputValue(SPORTS_SUB_CATS[0].keyword)
+      }
+      return
     }
-  }, [categorizedData, activeTabKey, selectedCategory, activeKeyword])
+
+    // 如果当前选中的分类 不属于 当前Tab (防止切换Tab后还保留着上个Tab的子分类ID)
+    const currentGroup = categorizedData[activeTabKey]
+    if (!currentGroup || currentGroup.children.length === 0) return
+
+    // 3. 检查当前选中的 ID 是否有效（是否属于当前 Tab 的子分类）
+    const isCurrentIdValid = currentGroup.children.some(
+      (c) => String(c.type_id) === String(selectedCategory)
+    )
+
+    // ✨ 修改点：如果 ID 无效（比如刚进来，或者从别的 Tab 切过来），强制选中第一个子分类
+    if (!isCurrentIdValid) {
+      setSelectedCategory(currentGroup.children[0].type_id)
+    }
+  }, [activeTabKey, categorizedData, activeKeyword, selectedCategory])
 
   // --- Persistence ---
   useEffect(() => {
@@ -232,6 +227,7 @@ const Search = () => {
   } = useInfiniteQuery({
     queryKey: ["videos", activeKeyword, selectedCategory, selectedYear],
     queryFn: async ({ pageParam = 1, signal }) => {
+      // 构造请求
       const res = await fetchVideos(
         {
           wd: activeKeyword,
@@ -281,41 +277,49 @@ const Search = () => {
     e.preventDefault()
     if (inputValue.trim() !== activeKeyword) {
       setActiveKeyword(inputValue.trim())
-      // 搜索时，取消分类选中
+      // 搜索模式下取消所有分类选中，且 UI 上的 Tab 高亮建议取消或保持当前
       setActiveTabKey("")
       setSelectedCategory("")
       ;(document.activeElement as HTMLElement)?.blur()
     }
   }
 
-  // 清空搜索时的逻辑
+  // 清空搜索逻辑
   useEffect(() => {
     if (!inputValue && activeKeyword) {
       setActiveKeyword("")
-      // 如果之前是在全网搜索，清空后默认回电影
+      // 恢复默认状态
       if (!activeTabKey) {
         setActiveTabKey("movie")
-        // 设置为电影的 rootId
-        if (categorizedData.movie.rootId)
-          setSelectedCategory(categorizedData.movie.rootId)
+        setSelectedCategory(1) // 默认回电影
       }
     }
-  }, [inputValue, categorizedData])
+  }, [inputValue, activeKeyword, activeTabKey])
 
   const handleTabClick = (key: string) => {
     window.scrollTo({ top: 0, behavior: "auto" })
     setActiveTabKey(key)
 
+    // 清空搜索状态
+    setActiveKeyword("")
+    setInputValue("")
+
     if (key === "sports") {
-      setSelectedCategory("")
-      setActiveKeyword("NBA")
-      setInputValue("NBA")
+      // 体育特殊处理：默认选中第一个虚拟子分类
+      const firstSport = SPORTS_SUB_CATS[0]
+      setSelectedCategory("") // 体育没有真实 ID，用 keyword
+      setActiveKeyword(firstSport.keyword)
+      setInputValue(firstSport.keyword)
     } else {
-      // 获取该分类的 rootId (例如 "电视剧" 的 ID)
-      const defaultId = categorizedData[key]?.rootId || ""
-      setSelectedCategory(defaultId)
-      setActiveKeyword("")
-      setInputValue("")
+      // 常规分类：默认选中第一个子分类
+      const currentGroup = categorizedData[key]
+      if (currentGroup && currentGroup.children.length > 0) {
+        // ✨ 修改点：直接选中第一个子分类 ID
+        setSelectedCategory(currentGroup.children[0].type_id)
+      } else {
+        // 兜底：如果没有子分类，才用 rootId (虽然理论上都有子分类)
+        setSelectedCategory(currentGroup?.rootId || "")
+      }
     }
   }
 
@@ -384,22 +388,20 @@ const Search = () => {
 
     return (
       <>
-        {/* "全部/推荐" 按钮 -> 对应 Root ID */}
-        {rootId && (
-          <button
-            onClick={() => {
-              setSelectedCategory(rootId)
-              window.scrollTo(0, 0)
-            }}
-            className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
-              String(selectedCategory) === String(rootId)
-                ? "bg-white text-black border-white font-bold"
-                : "bg-transparent text-gray-400 border-white/10"
-            }`}
-          >
-            全部
-          </button>
-        )}
+        {/* "全部" 按钮 -> 对应 Root ID */}
+        {/* <button
+          onClick={() => {
+            setSelectedCategory(rootId)
+            window.scrollTo(0, 0)
+          }}
+          className={`px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap ${
+            String(selectedCategory) === String(rootId)
+              ? "bg-white text-black border-white font-bold"
+              : "bg-transparent text-gray-400 border-white/10"
+          }`}
+        >
+          全部
+        </button> */}
 
         {/* 子分类按钮 */}
         {children.map((sub: any) => (

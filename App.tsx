@@ -8,7 +8,8 @@ import Profile from "./pages/Profile"
 import BottomNav from "./components/BottomNav"
 import Disclaimer from "./pages/Disclaimer"
 import PrivacyPolicy from "./pages/PrivacyPolicy"
-import { Toaster } from "react-hot-toast" // 引入 Toaster
+import { Toaster } from "react-hot-toast"
+import InstallPwaPrompt from "./components/InstallPwaPrompt"
 
 const MainLayout = () => {
   return (
@@ -58,6 +59,7 @@ const App = () => {
           <Route path="/detail/:id" element={<Detail />} />
         </Routes>
       </Router>
+      <InstallPwaPrompt />
     </AuthProvider>
   )
 }

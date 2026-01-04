@@ -225,16 +225,16 @@ const Home = () => {
                 />
               )}
 
-              {/* 6. 纪录片 */}
-              {data.documentaries && data.documentaries.length > 0 && (
+              {/* 6.  */}
+              {/* {data.documentaries && data.documentaries.length > 0 && (
                 <Section
                   title="纪录片"
                   icon={<Globe className="text-cyan-400" />}
                   items={data.documentaries}
-                  categoryId={20}
+                  categoryId={19}
                   type="landscape"
                 />
-              )}
+              )} */}
 
               {/* 7. 体育赛事 */}
               {data.sports && data.sports.length > 0 && (
