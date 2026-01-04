@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useEffect } from "react"
 import { HashRouter as Router, Routes, Route, Outlet } from "react-router-dom"
 import { AuthProvider } from "./context/AuthContext"
 import Home from "./pages/Home"
@@ -21,6 +21,19 @@ const MainLayout = () => {
 }
 
 const App = () => {
+  useEffect(() => {
+    // 阻止 document 级别的 touchmove，除非目标是可滚动的
+    // 注意：这个方法比较暴力，可能会影响某些正常的内部滚动，
+    // 建议先只用上面的 CSS 方案。如果 CSS 方案不够完美再加这个。
+
+    document.body.addEventListener(
+      "touchmove",
+      function (e) {
+        // 如果需要，可以在这里做更复杂的逻辑判断
+      },
+      { passive: false }
+    )
+  }, [])
   return (
     <AuthProvider>
       <Toaster

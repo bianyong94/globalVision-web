@@ -1,0 +1,29 @@
+/* src/index.css */
+
+:root {
+  /* 确保底色与你的 App 背景色 #050505 一致 */
+  background-color: #050505;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+
+  /* 核心代码 1：禁止浏览器的橡皮筋回弹效果 */
+  overscroll-behavior-y: none;
+
+  /* 核心代码 2：设置背景色为黑色，这样即使有微小的回弹，露出的也是黑色，看不出边界 */
+  background-color: #050505;
+
+  /* 优化滚动体验 */
+  -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  /* 确保根容器填满屏幕 */
+  min-height: 100%;
+  background-color: #050505;
+}
