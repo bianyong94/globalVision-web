@@ -8,6 +8,7 @@ import {
   Category,
 } from "../types"
 import toast from "react-hot-toast"
+import { VideoSource } from "../types"
 
 // Base URL configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
@@ -21,6 +22,13 @@ const api = axios.create({
 api.interceptors.response.use(
   (response) => {
     if (response.data && response.data.code && response.data.code !== 200) {
+      // 兼容某些接口直接返回数组或对象没有 code 字段的情况
+      if (
+        !response.data.code &&
+        (Array.isArray(response.data) || response.data.list)
+      ) {
+        return response
+      }
       return Promise.reject(new Error(response.data.message || "Error"))
     }
     return response
@@ -40,35 +48,55 @@ api.interceptors.response.use(
   }
 )
 
-// ... (fetchHomeData, fetchVideos, fetchVideoDetail, fetchCategories 保持不变) ...
+// =================================================================
+// 🔥🔥🔥 核心升级区域：适配 CMS 数据库模式 🔥🔥🔥
+// =================================================================
 
+// 1. 获取“精装修”首页数据 (Banner + Netflix/短剧/高分专区)
 export const fetchHomeData = async (): Promise<HomeData> => {
-  const response = await api.get("/home/trending")
+  // 对应后端的新接口 /api/v2/home
+  const response = await api.get("/v2/home")
   return response.data.data
 }
 
+// 2. 视频列表与筛选接口 (支持标签、分类、排序)
+// 对应后端的新接口 /api/v2/videos
 export const fetchVideos = async (
   params: {
-    t?: string | number
-    pg?: number
-    wd?: string
-    year?: string
-    h?: number
-    by?: string
+    pg?: number // 页码
+    cat?: string // 🔥 标准大类: movie, tv, anime, variety, sports
+    tag?: string // 🔥 智能标签: netflix, 4k, 古装, 悬疑, miniseries(短剧)
+    area?: string // 地区: 韩国, 美国...
+    year?: string // 年份
+    sort?: string // 排序: rating(评分), year(年份), 默认按时间
+    wd?: string // 搜索关键词 (Search 页面复用此接口)
   },
   signal?: AbortSignal
 ): Promise<SearchResult> => {
-  const response = await api.get("/videos", { params, signal })
-  return response.data.data
+  const response = await api.get("/v2/videos", { params, signal })
+
+  // 后端返回的是 { code: 200, list: [...] }
+  // 这里做个适配，让前端能直接拿到数据
+  return {
+    list: response.data.list || [],
+    total: response.data.total || 0, // 如果后端没算 total，前端最好做个无限滚动不做分页条
+    pagecount: 100, // 数据库模式下，暂定给个足够大的页数，或者后端补上 count 计算
+  } as unknown as SearchResult
 }
 
+// 3. 视频详情
 export const fetchVideoDetail = async (
   id: string | number
 ): Promise<VideoDetail> => {
+  // 注意：现在的 ID 可能是 "maotai_12345" 这种字符串格式
   const response = await api.get(`/detail/${id}`)
-  return response.data.data
+  // 兼容直接返回对象或包裹在 data 里的情况
+  return response.data.data || response.data
 }
 
+// 4. 分类接口
+// ⚠️ 注意：既然我们采用了“标准分类”，前端其实可以写死 Tab (电影/剧集/综艺/动漫)，
+// 这个接口主要用于获取资源站的原始分类做映射，或者您可以暂时不再使用它。
 export const fetchCategories = async (): Promise<Category[]> => {
   try {
     const response = await api.get("/categories")
@@ -79,19 +107,15 @@ export const fetchCategories = async (): Promise<Category[]> => {
   }
 }
 
-// 🔥🔥🔥 新增 AI 提问接口 🔥🔥🔥
-export const askAI = async (question: string): Promise<string[]> => {
-  // 使用 api 实例调用，享受全局拦截器处理错误
-  const response = await api.post("/ai/ask", { question })
+// =================================================================
+// 🔥 AI 与 用户系统 (保持不变)
+// =================================================================
 
-  // 后端返回结构为 { code: 200, data: ["电影1", "电影2"] }
-  // 做个防御性检查，确保返回的是数组
+export const askAI = async (question: string): Promise<string[]> => {
+  const response = await api.post("/ai/ask", { question })
   return Array.isArray(response.data.data) ? response.data.data : []
 }
 
-// ... (Auth 和 History 部分保持不变) ...
-
-// Auth
 export const login = async (
   username: string,
   password: string
@@ -134,7 +158,6 @@ export const saveHistory = async (payload: {
   await api.post("/user/history", payload)
 }
 
-// 🔥 [新增] 清空历史记录
 export const clearUserHistory = async (username: string): Promise<boolean> => {
   try {
     const response = await api.delete(
@@ -145,4 +168,15 @@ export const clearUserHistory = async (username: string): Promise<boolean> => {
     console.error("清空历史失败", error)
     return false
   }
+}
+
+export const fetchVideoSources = async (
+  title: string
+): Promise<VideoSource[]> => {
+  // 注意：axios 的 params 会自动处理 URL 编码
+  const response = await api.get("/v2/video/sources", { params: { title } })
+
+  // 后端返回的是 { code: 200, data: [...] } 或直接数组，根据你的封装调整
+  // 假设你的拦截器返回的是 response.data.data
+  return Array.isArray(response.data.data) ? response.data.data : []
 }

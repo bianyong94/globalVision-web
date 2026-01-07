@@ -21,7 +21,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
   if (layout === "list") {
     return (
       <div
-        onClick={() => navigate(`/detail/${video.id}`)}
+        onClick={() => navigate(`/detail/${video._id}`)}
         className="flex gap-3 bg-surface rounded-lg overflow-hidden p-2 mb-3 cursor-pointer active:scale-95 transition-transform"
       >
         <div className="relative w-24 h-32 flex-shrink-0 rounded-md overflow-hidden bg-gray-800">
