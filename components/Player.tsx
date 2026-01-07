@@ -8,6 +8,8 @@ interface PlayerProps {
   className?: string
   initialTime?: number
   onTimeUpdate?: (time: number) => void
+  // 🔥 新增：播放结束的回调
+  onEnded?: () => void
 }
 
 const Player: React.FC<PlayerProps> = ({
@@ -16,6 +18,7 @@ const Player: React.FC<PlayerProps> = ({
   className,
   initialTime,
   onTimeUpdate,
+  onEnded,
 }) => {
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
@@ -31,7 +34,7 @@ const Player: React.FC<PlayerProps> = ({
       volume: 0.7,
       isLive: false,
       muted: false,
-      autoplay: false,
+      autoplay: true,
 
       // 系统全屏 (性能最好)
       fullscreen: true,
@@ -142,6 +145,27 @@ const Player: React.FC<PlayerProps> = ({
       if (onTimeUpdate && art.currentTime > 0) onTimeUpdate(art.currentTime)
     })
 
+    // 🔥 监听播放结束，触发自动连播逻辑
+    art.on("video:ended", () => {
+      if (onEnded) onEnded()
+    })
+
+    // 🔥🔥 [核心优化] 解决快进/拖动进度条时图标闪烁问题 🔥🔥
+    // 原理：在 seeking (寻找中) 时隐藏状态图标，seeked (寻找结束) 后恢复
+    art.on("seeking", () => {
+      if (art.template.$state) {
+        art.template.$state.style.display = "none"
+      }
+    })
+    art.on("seeked", () => {
+      if (art.template.$state) {
+        // 稍微延迟显示，防止瞬间闪烁
+        setTimeout(() => {
+          if (art.template.$state) art.template.$state.style.display = ""
+        }, 200)
+      }
+    })
+
     playerRef.current = art
 
     return () => {
@@ -157,6 +181,7 @@ const Player: React.FC<PlayerProps> = ({
         hlsRef.current = null
       }
       playerRef.current.switchUrl(url)
+      playerRef.current.play()
     }
   }, [url, poster])
 

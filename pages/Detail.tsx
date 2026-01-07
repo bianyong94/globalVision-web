@@ -235,6 +235,24 @@ const Detail = () => {
     currentTimeRef.current = 0
   }
 
+  // 🔥 自动连播下一集逻辑
+  const handleVideoEnded = () => {
+    if (!detail?.episodes) return
+
+    // 如果不是最后一集
+    if (currentEpIndex < detail.episodes.length - 1) {
+      const nextIndex = currentEpIndex + 1
+      toast.success(`即将播放第 ${nextIndex + 1} 集`, {
+        icon: "📺",
+        duration: 3000,
+      })
+      handleEpisodeChange(nextIndex)
+    } else {
+      // 最后一集播完
+      toast("已播放完毕", { icon: "🏁" })
+    }
+  }
+
   // 🔄 切换源点击处理
   const handleSourceChange = (newSourceId: string) => {
     // 如果点击的是当前正在播放的源，不做处理
@@ -312,6 +330,7 @@ const Detail = () => {
               poster={detail?.pic || detail?.poster} // 兼容字段
               initialTime={startTime}
               onTimeUpdate={handleTimeUpdate}
+              onEnded={handleVideoEnded}
             />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2 bg-[#111]">
