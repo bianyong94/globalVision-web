@@ -87,7 +87,7 @@ const Home = () => {
       {/* 🔴 顶部搜索栏 (透明浮动) */}
       <div className="fixed top-0 left-0 right-0 z-40 px-4 py-3 bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
         <div
-          className="pointer-events-auto bg-white/10 backdrop-blur-md border border-white/10 rounded-full h-10 flex items-center px-4 gap-2 active:scale-95 transition-transform"
+          className="pointer-events-auto bg-white/10 backdrop-blur-md border border-white/10 rounded-full h-10 flex items-center px-4 gap-2 active:scale-95 transition-transform pt-[calc(0.75rem+env(safe-area-inset-top))] "
           onClick={() => navigate("/search")}
         >
           <Search size={16} className="text-gray-400" />

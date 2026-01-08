@@ -60,7 +60,6 @@ const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
     { label: "国产剧", value: "国产" },
     { label: "美剧", value: "欧美" },
     { label: "韩剧", value: "韩剧" },
-    { label: "爆火短剧", value: "miniseries" },
     { label: "Netflix", value: "netflix" },
     { label: "悬疑", value: "悬疑" },
     { label: "喜剧", value: "喜剧" },
