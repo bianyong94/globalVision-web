@@ -39,7 +39,6 @@ const CATEGORIES = [
 const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
   all: [
     { label: "Netflix", value: "netflix" },
-    { label: "4K原盘", value: "4k" },
     { label: "高分电影", value: "high_score" },
   ],
   movie: [
@@ -79,9 +78,9 @@ const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
   ],
   sports: [
     { label: "全部", value: "" },
-    { label: "NBA", value: "NBA" },
-    { label: "足球", value: "足球" },
-    { label: "F1", value: "F1" },
+    // { label: "NBA", value: "NBA" },
+    // { label: "足球", value: "足球" },
+    // { label: "F1", value: "F1" },
   ],
 }
 
@@ -89,7 +88,6 @@ const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
 const SORT_OPTIONS = [
   { label: "按时间", value: "time" },
   { label: "按评分", value: "rating" },
-  { label: "按年份", value: "year" },
 ]
 
 // 年份选项

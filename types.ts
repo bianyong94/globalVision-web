@@ -23,6 +23,7 @@ export interface Episode {
 
 export interface VideoDetail extends VideoSummary {
   director: string
+  writer?: string // 编剧
   actors: string
   id: string | number
   title: string
@@ -40,6 +41,12 @@ export interface VideoDetail extends VideoSummary {
   // 🔥 新增：源信息
   available_sources?: SourceInfo[]
   current_source?: { key: string; name: string }
+  country?: string // 制片国家 "美国", "中国大陆"
+  language?: string // 语言 "en", "zh"
+  duration?: number // 单集时长 (分钟)
+  // 播放列表
+  // 关联推荐
+  related?: VideoItem[]
 }
 
 export interface HomeData {
@@ -55,10 +62,14 @@ export interface VideoItem {
   title: string
   poster: string
   remarks: string
+  // 🔥 新增字段
+  backdrop?: string // 横版剧照 (用于首页 Banner 或详情页顶部背景)
+  original_title?: string // 原名 (例如 "Three Body")
   year?: number | string
   rating?: number
   category?: string // 新增
   tags?: string[] // 新增
+  overview?: string // 新增
   // ... 其他字段
 }
 export interface SearchResult {

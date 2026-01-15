@@ -6,6 +6,7 @@ import {
   AuthResponse,
   User,
   Category,
+  VideoSummary, // 确保从 types 导入了 Video 类型
 } from "../types"
 import toast from "react-hot-toast"
 import { VideoSource } from "../types"
@@ -179,4 +180,46 @@ export const fetchVideoSources = async (
   // 后端返回的是 { code: 200, data: [...] } 或直接数组，根据你的封装调整
   // 假设你的拦截器返回的是 response.data.data
   return Array.isArray(response.data.data) ? response.data.data : []
+}
+
+// =================================================================
+// 🔥🔥🔥 TMDB 元数据驱动接口 (Netflix/高分榜/关联查询) 🔥🔥🔥
+// =================================================================
+
+/**
+ * 获取 TMDB Netflix 热门剧集列表
+ * 返回的数据是精美的 TMDB 数据，用于展示
+ */
+export const fetchTmdbNetflix = async (): Promise<VideoSummary[]> => {
+  const response = await api.get("/v2/tmdb/netflix")
+  // 后端接口返回的是 { code: 200, data: [...] }
+  return Array.isArray(response.data.data) ? response.data.data : []
+}
+
+/**
+ * 获取 TMDB 高分电影榜单
+ */
+export const fetchTmdbTopRated = async (): Promise<VideoSummary[]> => {
+  const response = await api.get("/v2/tmdb/top_rated")
+  return Array.isArray(response.data.data) ? response.data.data : []
+}
+
+/**
+ * 资源关联匹配接口
+ * 前端点击 TMDB 列表中的卡片时调用，检查本地数据库是否有资源
+ * @param params { tmdb_id, title, category }
+ */
+export const matchLocalResource = async (params: {
+  tmdb_id: number | string
+  title: string
+  category?: string
+  year?: number | string
+}): Promise<{
+  found: boolean
+  id?: string // 如果 found 为 true，这里返回本地数据库的 uniq_id (如 "maotai_1234")
+  title?: string
+  message?: string
+}> => {
+  const response = await api.get("/v2/resource/match", { params })
+  return response.data.data
 }

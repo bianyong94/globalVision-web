@@ -13,6 +13,7 @@
     "artplayer": "^5.3.0",
     "artplayer-plugin-danmuku": "^5.2.0",
     "axios": "^1.13.2",
+    "clsx": "^2.1.1",
     "framer-motion": "^12.24.7",
     "hls.js": "^1.6.15",
     "lucide-react": "^0.562.0",
@@ -20,7 +21,10 @@
     "react-dom": "^19.2.3",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.11.0",
-    "swiper": "^12.0.3"
+    "swiper": "^12.0.3",
+    "tailwind-merge": "^3.4.0",
+    "xgplayer": "^3.0.23",
+    "xgplayer-hls": "^3.0.23"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
