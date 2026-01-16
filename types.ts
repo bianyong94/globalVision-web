@@ -11,10 +11,16 @@ export interface VideoSummary {
   overview?: string
 }
 export interface VideoSource {
-  key: string // feifan
-  name: string // 非凡资源
-  id: string // feifan_12345 (跳转用的ID)
-  remarks: string // 更新至30集
+  key?: string // feifan
+  name?: string // 非凡资源
+  id?: string // feifan_12345 (跳转用的ID)
+  source_key?: string
+  source_name?: string
+  source_id?: string // 采集站那边的 ID
+  remarks?: string
+  // 这里可以存储原始的 m3u8 字符串，或者解析后的数组，看你后端怎么给
+  // 如果后端返回的是字符串 "第1集$url#第2集$url"，前端需要解析
+  vod_play_url: string
 }
 export interface Episode {
   name: string
@@ -47,6 +53,7 @@ export interface VideoDetail extends VideoSummary {
   // 播放列表
   // 关联推荐
   related?: VideoItem[]
+  sources: VideoSource[]
 }
 
 export interface HomeData {

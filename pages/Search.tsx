@@ -195,7 +195,7 @@ const Search = () => {
   const videos = data?.pages.flatMap((page) => page.list) || []
   const isEmpty = !isFetching && videos.length === 0
   const isFilterLoading = isFetching && !isFetchingNextPage && !isRefetching
-
+  console.log("Home.tsx", videos)
   // ==========================================
   // 4. 事件处理
   // ==========================================
@@ -572,7 +572,6 @@ const Search = () => {
             })}
           </div>
         )}
-
         {/* Empty State */}
         {isEmpty && (
           <div className="flex flex-col items-center justify-center py-20 text-gray-600 space-y-4">
@@ -602,7 +601,6 @@ const Search = () => {
             </button>
           </div>
         )}
-
         {/* Load More & Footer */}
         <div ref={loadMoreRef} className="py-8 flex justify-center w-full">
           {isFetchingNextPage ? (
@@ -619,7 +617,6 @@ const Search = () => {
             </div>
           ) : null}
         </div>
-
         {isError && (
           <div className="text-center py-10">
             <button
