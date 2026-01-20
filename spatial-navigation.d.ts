@@ -42,7 +42,7 @@ declare module "@noriginmedia/react-spatial-navigation" {
 
   export function useFocusable(config?: UseFocusableConfig): UseFocusableResult
 
-  export function initNavigation(config?: any): void
+  // export function initNavigation(config?: any): void
 
   export const FocusContext: React.Context<string>
 }
