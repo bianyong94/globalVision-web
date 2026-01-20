@@ -527,7 +527,7 @@ const Search = () => {
             }
           >
             {videos.map((v, index) => {
-              const displayVideo = { ...v, rating: v.rating || 0.0 }
+              const displayVideo = { ...v, rating: v.rating.toFixed(1) || 0.0 }
 
               if (state.viewMode === "list") {
                 return (
