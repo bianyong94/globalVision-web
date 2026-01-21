@@ -1,3 +1,8 @@
+/* tailwindcss样式引入 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   /* 确保底色与你的 App 背景色 #050505 一致 */
   background-color: #050505;
