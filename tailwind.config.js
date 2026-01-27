@@ -13,6 +13,9 @@ export default {
     "./services/**/*.{js,ts,jsx,tsx}",
     // 如果还有其他文件夹，继续在这里添加
   ],
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {},
   },

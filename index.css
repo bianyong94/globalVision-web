@@ -42,3 +42,12 @@ body.artplayer-web-fullscreen {
   min-height: 100%;
   background-color: #050505;
 }
+
+/* 🔥 解决移动端点两次才能生效的问题 */
+@media (hover: none) {
+  *:hover {
+    /* 强制移除移动端的所有 hover 样式 */
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}

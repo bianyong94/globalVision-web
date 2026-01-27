@@ -39,11 +39,10 @@ const CATEGORIES = [
 const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
   all: [
     { label: "Netflix", value: "netflix" },
-    { label: "高分电影", value: "high_score" },
+    { label: "高分影视", value: "high_score" },
   ],
   movie: [
     { label: "全部", value: "" },
-    { label: "最新院线", value: "new_arrival" },
     { label: "Netflix", value: "netflix" },
     { label: "动作", value: "动作" },
     { label: "科幻", value: "科幻" },
@@ -68,19 +67,20 @@ const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
   ],
   anime: [
     { label: "全部", value: "" },
-    { label: "国产动漫", value: "国产" },
+    { label: "国产动漫", value: "国漫" },
     { label: "日本动漫", value: "日本" },
   ],
   variety: [
     { label: "全部", value: "" },
     { label: "大陆综艺", value: "大陆" },
-    { label: "日韩综艺", value: "日韩" },
+    { label: "韩国综艺", value: "韩剧" },
+    { label: "欧美综艺", value: "欧美" },
   ],
   sports: [
     { label: "全部", value: "" },
-    // { label: "NBA", value: "NBA" },
-    // { label: "足球", value: "足球" },
-    // { label: "F1", value: "F1" },
+    { label: "NBA", value: "NBA" },
+    { label: "足球", value: "足球" },
+    { label: "F1", value: "F1" },
   ],
 }
 
@@ -227,7 +227,7 @@ const Search = () => {
 
         return newParams
       },
-      { replace: true }
+      { replace: true },
     )
   }, [state, setSearchParams])
 
@@ -240,7 +240,7 @@ const Search = () => {
         if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage)
           fetchNextPage()
       },
-      { threshold: 0.1, rootMargin: "200px" }
+      { threshold: 0.1, rootMargin: "200px" },
     )
     observer.observe(el)
     return () => observer.disconnect()

@@ -24,7 +24,7 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
   useEffect(() => {
     const timer = setInterval(() => {
       handleNext()
-    }, 8000)
+    }, 5000)
     return () => clearInterval(timer)
   }, [currentIndex])
 
@@ -38,42 +38,96 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
   }
 
   // 🔥 统一跳转逻辑 (去详情页)
+  // const handleNavigateToDetail = async () => {
+  //   const item = currentItem
+
+  //   // 1. 如果本身就是本地数据 (ID带下划线)，直接跳
+  //   if (item.id && typeof item.id === "string" && item.id.includes("_")) {
+  //     navigate(`/detail/${item.id}`)
+  //     return
+  //   }
+
+  //   // 2. 如果是 TMDB 数据，先去后台匹配本地资源 ID
+  //   setIsLoading(true)
+  //   try {
+  //     // 优先用 tmdb_id，没有则用 id (兼容不同接口返回格式)
+  //     const tmdbId = (item as any).tmdb_id || item.id
+
+  //     const res = await matchLocalResource({
+  //       tmdb_id: tmdbId,
+  //       title: item.title,
+  //       category: item.category,
+  //       year: item.year, // 传入分类辅助匹配
+  //     })
+
+  //     if (res.found && res.id) {
+  //       navigate(`/detail/${res.id}`)
+  //     } else {
+  //       // 兜底：如果实在匹配不到，还是得跳搜索，否则用户什么都看不了
+  //       // 但为了体验，我们可以提示一下
+  //       toast.error(`暂未收录《${item.title}》，为您跳转全网搜索...`, {
+  //         duration: 3000,
+  //       })
+  //       setTimeout(
+  //         () => navigate(`/search?wd=${encodeURIComponent(item.title)}`),
+  //         1000,
+  //       )
+  //     }
+  //   } catch (e) {
+  //     toast.error("网络异常，跳转搜索")
+  //     navigate(`/search?wd=${encodeURIComponent(item.title)}`)
+  //   } finally {
+  //     setIsLoading(false)
+  //   }
+  // }
   const handleNavigateToDetail = async () => {
     const item = currentItem
+    if (!item) return
 
-    // 1. 如果本身就是本地数据 (ID带下划线)，直接跳
-    if (item.id && typeof item.id === "string" && item.id.includes("_")) {
+    // 🕵️‍♂️ 1. 识别是否为本地资源 (MongoID 是 24位 hex 字符串)
+    // 如果 item.id 是数字(TMDB ID) 或者如果不符合 MongoID 格式，则认为是外部数据
+    const isLocalId =
+      typeof item.id === "string" && /^[0-9a-fA-F]{24}$/.test(item.id)
+
+    if (isLocalId) {
+      // 本地资源，直接跳详情
       navigate(`/detail/${item.id}`)
       return
     }
 
-    // 2. 如果是 TMDB 数据，先去后台匹配本地资源 ID
+    // 🕵️‍♂️ 2. 外部数据 (TMDB)，需要去后台匹配
     setIsLoading(true)
+    const loadingToast = toast.loading("正在查找播放源...")
+
     try {
-      // 优先用 tmdb_id，没有则用 id (兼容不同接口返回格式)
+      // 兼容字段提取
       const tmdbId = (item as any).tmdb_id || item.id
+      // 提取年份 (TMDB数据可能是 release_date)
+      const rawDate =
+        item.year || (item as any).release_date || (item as any).first_air_date
+      const year = rawDate ? String(rawDate).substring(0, 4) : ""
+      // 提取分类 (TMDB数据可能是 media_type)
+      const category = item.category || (item as any).media_type || "movie"
 
       const res = await matchLocalResource({
         tmdb_id: tmdbId,
         title: item.title,
-        category: item.category,
-        year: item.year, // 传入分类辅助匹配
+        category: category,
+        year: year,
       })
 
+      toast.dismiss(loadingToast)
+
       if (res.found && res.id) {
+        toast.success(`为您找到资源：${res.title}`)
         navigate(`/detail/${res.id}`)
       } else {
-        // 兜底：如果实在匹配不到，还是得跳搜索，否则用户什么都看不了
-        // 但为了体验，我们可以提示一下
-        toast.error(`暂未收录《${item.title}》，为您跳转全网搜索...`, {
-          duration: 3000,
-        })
-        setTimeout(
-          () => navigate(`/search?wd=${encodeURIComponent(item.title)}`),
-          1000
-        )
+        // 兜底策略：跳去搜索页
+        toast.error(`暂无片源，跳转全网搜索...`, { duration: 3000 })
+        navigate(`/search?wd=${encodeURIComponent(item.title)}`)
       }
     } catch (e) {
+      toast.dismiss(loadingToast)
       toast.error("网络异常，跳转搜索")
       navigate(`/search?wd=${encodeURIComponent(item.title)}`)
     } finally {

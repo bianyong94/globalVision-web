@@ -3,7 +3,6 @@ import { VideoSummary } from "../types"
 import { useNavigate } from "react-router-dom"
 import { Play } from "lucide-react"
 import { getProxyUrl } from "../utils/common"
-import { FocusableWrapper } from "./tv/FocusableWrapper"
 
 interface Props {
   video: VideoSummary
@@ -12,9 +11,6 @@ interface Props {
 
 const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
   const navigate = useNavigate()
-  const handlePress = () => {
-    navigate(`/detail/${video.id}`)
-  }
   const handleImageError = (
     e: React.SyntheticEvent<HTMLImageElement, Event>,
   ) => {
@@ -24,8 +20,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
   if (layout === "list") {
     return (
       <>
-        <FocusableWrapper
-          onEnter={handlePress}
+        <div
           className="group relative flex flex-col gap-2 rounded-xl" // 基础样式移到这里
         >
           <div
@@ -58,14 +53,13 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
               )}
             </div>
           </div>
-        </FocusableWrapper>
+        </div>
       </>
     )
   }
 
   return (
-    <FocusableWrapper
-      onEnter={handlePress}
+    <div
       className="group relative flex flex-col gap-2 rounded-xl" // 基础样式移到这里
     >
       <div
@@ -98,7 +92,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
         </h3>
         <p className="text-xs text-gray-500">{video.year}</p>
       </div>
-    </FocusableWrapper>
+    </div>
   )
 }
 

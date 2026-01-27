@@ -6,7 +6,7 @@ import { VitePWA } from "vite-plugin-pwa" // 引入PWA插件
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "")
   return {
-    base: "./",
+    base: "/",
     server: {
       port: 5174,
       host: "0.0.0.0",

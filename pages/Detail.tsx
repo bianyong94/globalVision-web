@@ -6,7 +6,7 @@ import {
   fetchVideos,
   saveHistory,
   fetchHistory,
-  fetchVideoSources, // 确保引入了这个
+  fetchVideoSources,
 } from "../services/api"
 import { VideoDetail, VideoSummary } from "../types"
 import Player from "../components/Player"
@@ -16,23 +16,22 @@ import {
   ChevronLeft,
   PlayCircle,
   Info,
-  Cast,
   Loader2,
-  Server,
-  Check,
-  ChevronDown,
   Globe,
-  Database,
+  Check,
+  Search,
+  Layers,
+  Sparkles,
+  X,
 } from "lucide-react"
-import { FocusableWrapper } from "../components/tv/FocusableWrapper"
 
 // 定义统一的源结构
 interface UnifiedSource {
-  id: string // 唯一标识 (内部源用 index，外部源用 id)
-  name: string // 显示名称 (如 "怪奇物语 第二季" 或 "非凡资源")
-  remarks: string // 备注 (如 "完结")
-  vod_play_url: string // 播放地址字符串
-  type: "local" | "external" // 标记来源类型
+  id: string
+  name: string
+  remarks: string
+  vod_play_url: string
+  type: "local" | "external"
 }
 
 const Detail = () => {
@@ -40,37 +39,43 @@ const Detail = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
 
-  // --- 基础状态 ---
+  // 状态
   const [detail, setDetail] = useState<VideoDetail | null>(null)
   const [isDetailLoading, setIsDetailLoading] = useState(true)
   const [recommendations, setRecommendations] = useState<VideoSummary[]>([])
   const [isRecLoading, setIsRecLoading] = useState(true)
 
-  // --- 播放源状态 (核心) ---
+  // 当前激活的播放源（对应某一季）
   const [activeSource, setActiveSource] = useState<UnifiedSource | null>(null)
+
+  // 外部搜索源
   const [externalSources, setExternalSources] = useState<UnifiedSource[]>([])
   const [isSourceSearching, setIsSourceSearching] = useState(false)
+  const [showExternalPanel, setShowExternalPanel] = useState(false) // 改名为外部源面板
 
-  // --- 播放状态 ---
+  // 播放进度与集数
   const [currentEpIndex, setCurrentEpIndex] = useState(0)
   const [startTime, setStartTime] = useState(0)
   const [isDescExpanded, setIsDescExpanded] = useState(false)
-  const [showSourcePanel, setShowSourcePanel] = useState(false)
 
-  // --- Refs ---
+  // Refs
   const detailRef = useRef<VideoDetail | null>(null)
   const currentEpIndexRef = useRef(0)
   const currentTimeRef = useRef(0)
   const userRef = useRef(user)
 
+  // 🔄 核心修复：进入页面强制滚动到顶部
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [routeId])
+
   useEffect(() => {
     userRef.current = user
   }, [user])
 
-  // 🔥 1. 动态计算集数列表 (依赖 activeSource)
+  // 计算当前源的集数列表
   const episodes = useMemo(() => {
     if (!activeSource || !activeSource.vod_play_url) return []
-
     return activeSource.vod_play_url.split("#").map((segment) => {
       const parts = segment.split("$")
       return {
@@ -80,17 +85,19 @@ const Detail = () => {
     })
   }, [activeSource])
 
-  // 🔥 2. 初始化加载逻辑
+  // 1. 加载数据
   useEffect(() => {
     if (!routeId) return
-
-    // 重置所有状态
+    // 重置状态
     setDetail(null)
     setExternalSources([])
     setActiveSource(null)
     setIsDetailLoading(true)
+    setIsRecLoading(true)
+    setRecommendations([])
     setCurrentEpIndex(0)
     setStartTime(0)
+    setShowExternalPanel(false)
 
     const loadData = async () => {
       try {
@@ -103,21 +110,20 @@ const Detail = () => {
         detailRef.current = videoData
         setIsDetailLoading(false)
 
-        // A. 初始化默认源 (取数据库第一个)
+        // 🎯 默认选中第一个源（第一季或最新季，取决于你入库顺序）
         if (videoData.sources && videoData.sources.length > 0) {
           const defaultSource = videoData.sources[0]
-          const initialSource: UnifiedSource = {
+          setActiveSource({
             id: `local_0`,
             name:
-              defaultSource.vod_name || defaultSource.source_name || "默认线路",
+              defaultSource.vod_name || defaultSource.source_name || "默认资源",
             remarks: defaultSource.remarks,
             vod_play_url: defaultSource.vod_play_url,
             type: "local",
-          }
-          setActiveSource(initialSource)
+          })
         }
 
-        // B. 恢复历史进度
+        // 恢复历史记录
         if (user && historyList) {
           const record = historyList.find(
             (h: any) => String(h.id) === String(videoData.id),
@@ -125,68 +131,54 @@ const Detail = () => {
           if (record) {
             setCurrentEpIndex(record.episodeIndex || 0)
             setStartTime(record.progress || 0)
-            // TODO: 如果历史记录里存了 sourceId，这里可以恢复到上次看的那个源
           }
         }
 
-        // C. 加载推荐
         loadRecommendations(videoData.category || "movie", videoData.id)
-
-        // D. 触发全网搜索 (静默后台进行)
+        // 悄悄在后台搜一下外部源，以备用户需要
         searchExternalSources(videoData.title)
       } catch (e) {
         console.error(e)
-        toast.error("视频加载失败")
+        toast.error("资源加载失败")
         setIsDetailLoading(false)
       }
     }
-
     loadData()
   }, [routeId, user?.username])
 
-  // 🔥 3. 全网搜源逻辑
   const searchExternalSources = async (title: string) => {
     const cleanTitle = title
       .replace(/第[0-9一二三四五六七八九十]+[季部]/, "")
       .trim()
     setIsSourceSearching(true)
-
     try {
       const list = await fetchVideoSources(cleanTitle)
-
-      // 转换格式
-      const formatted: UnifiedSource[] = list.map((item: any) => ({
-        id: item.id, // 这里 id 通常是 "feifan_12345"
-        name: item.title, // "怪奇物语 第二季"
-        remarks: `${item.source_name} • ${item.remarks}`, // "非凡 • 完结"
-        vod_play_url: item.vod_play_url, // 假设后端接口返回了这个，如果没有需要回源查详情
-        type: "external",
-      }))
-
-      // 过滤掉已经在本地存在的 (根据 vod_play_url 简单去重，或者 ID)
-      setExternalSources(formatted)
-    } catch (e) {
-      console.error(e)
+      setExternalSources(
+        list.map((item: any) => ({
+          id: item.id,
+          name: item.title,
+          remarks: `${item.source_name} • ${item.remarks}`,
+          vod_play_url: item.vod_play_url,
+          type: "external",
+        })),
+      )
+    } catch {
+      // 失败也不影响主流程
     } finally {
       setIsSourceSearching(false)
     }
   }
 
-  // 🔥 4. 切换源逻辑 (无刷新)
   const handleSourceChange = (newSource: UnifiedSource) => {
     if (activeSource?.id === newSource.id) return
-
-    saveProgressToDB() // 切源前保存进度
-
+    saveProgressToDB()
     setActiveSource(newSource)
-    setCurrentEpIndex(0) // 重置集数
-    setStartTime(0) // 重置时间
-    setShowSourcePanel(false)
-
+    setCurrentEpIndex(0) // 切换季/源后，重置到第一集
+    setStartTime(0)
+    setShowExternalPanel(false)
     toast.success(`已切换至: ${newSource.name}`)
   }
 
-  // 辅助逻辑
   const loadRecommendations = async (cat: string, currentId: string) => {
     try {
       let res = await fetchVideos({ cat, pg: 1 }).catch(() => ({ list: [] }))
@@ -195,7 +187,9 @@ const Detail = () => {
           .filter((v: any) => String(v.id) !== String(currentId))
           .slice(0, 9),
       )
-    } catch {}
+    } finally {
+      setIsRecLoading(false)
+    }
   }
 
   const saveProgressToDB = useCallback(() => {
@@ -215,7 +209,22 @@ const Detail = () => {
     }
   }, [])
 
-  // 页面离开保存
+  const handleBack = useCallback(
+    (e: React.MouseEvent | React.PointerEvent) => {
+      console.log("handleBack")
+      e.preventDefault()
+      e.stopPropagation()
+      setTimeout(() => {
+        if (window.history.length > 1) {
+          window.history.back()
+        } else {
+          navigate("/", { replace: true })
+        }
+      }, 10)
+    },
+    [navigate],
+  )
+
   useEffect(() => {
     const handleVis = () =>
       document.visibilityState === "hidden" && saveProgressToDB()
@@ -226,7 +235,6 @@ const Detail = () => {
     }
   }, [saveProgressToDB])
 
-  // 播放器交互
   const handleEpisodeChange = (idx: number) => {
     if (idx === currentEpIndex) return
     saveProgressToDB()
@@ -237,123 +245,77 @@ const Detail = () => {
 
   const currentEp = episodes[currentEpIndex]
 
-  // 渲染源面板
-  const renderSourcePanel = () => (
-    <div className="bg-[#0f0f0f] border-b border-white/5 p-4 animate-in slide-in-from-top-2 max-h-[60vh] overflow-y-auto">
-      {/* A. 本地数据库源 (不同季度/线路) */}
-      {detail?.sources && detail.sources.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3 text-emerald-500">
-            <Database size={14} />
-            <h3 className="text-xs font-bold">精选线路 / 季度</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {detail.sources.map((source, idx) => {
-              const sourceId = `local_${idx}`
-              const isCurrent = activeSource?.id === sourceId
-              const unifiedSource: UnifiedSource = {
-                id: sourceId,
-                name:
-                  source.vod_name || source.source_name || `线路 ${idx + 1}`,
-                remarks: source.remarks,
-                vod_play_url: source.vod_play_url,
-                type: "local",
-              }
+  // 📺 渲染全网搜索面板 (仅用于外部源)
+  const renderExternalPanel = () => (
+    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-in fade-in">
+      <div
+        className="bg-[#1a1a1a] w-full max-w-md rounded-2xl max-h-[70vh] flex flex-col shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+          <h3 className="font-bold text-white flex items-center gap-2">
+            <Globe size={16} className="text-blue-400" /> 全网云搜结果
+          </h3>
+          <button
+            onClick={() => setShowExternalPanel(false)}
+            className="p-1 text-gray-400 hover:text-white"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
-              return (
-                <FocusableWrapper
-                  key={sourceId}
-                  onEnter={() => handleSourceChange(unifiedSource)}
-                  className={`
-                    flex items-center justify-between p-3 rounded-xl border transition-all text-left
-                    ${
-                      isCurrent
-                        ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
-                        : "bg-[#1a1a1a] border-white/5 text-gray-300 hover:bg-[#252525]"
-                    }
-                  `}
+        <div className="p-2 overflow-y-auto custom-scrollbar">
+          {isSourceSearching ? (
+            <div className="py-8 flex flex-col items-center text-gray-500 gap-2">
+              <Loader2 size={24} className="animate-spin text-blue-500" />
+              <span className="text-xs">正在搜索全网资源...</span>
+            </div>
+          ) : externalSources.length === 0 ? (
+            <div className="py-8 text-center text-gray-500 text-sm">
+              未找到相关外部资源
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {externalSources.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => handleSourceChange(item)}
+                  className={`flex items-center justify-between p-3 rounded-lg border transition-all active:scale-95 text-left ${
+                    activeSource?.id === item.id
+                      ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
+                      : "bg-[#252525] border-white/5 text-gray-300 hover:bg-[#333]"
+                  }`}
                 >
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-bold truncate">
-                      {unifiedSource.name}
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold block truncate">
+                      {item.name}
                     </span>
-                    <span className="text-[10px] opacity-50 mt-0.5 truncate">
-                      {source.source_name}
+                    <span className="text-[10px] opacity-50 block mt-1">
+                      {item.remarks}
                     </span>
                   </div>
-                  {isCurrent && (
-                    <Check
-                      size={14}
-                      className="text-emerald-500 shrink-0 ml-2"
-                    />
-                  )}
-                </FocusableWrapper>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* B. 全网搜索源 */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-blue-400">
-            <Globe size={14} />
-            <h3 className="text-xs font-bold">全网搜索结果</h3>
-          </div>
-          {isSourceSearching && (
-            <span className="text-[10px] text-gray-500 flex items-center gap-1">
-              <Loader2 size={10} className="animate-spin" /> 搜索中...
-            </span>
+                  {activeSource?.id === item.id && <Check size={14} />}
+                </button>
+              ))}
+            </div>
           )}
-        </div>
-
-        <div className="grid grid-cols-1 gap-2">
-          {externalSources.length > 0
-            ? externalSources.map((item) => {
-                const isCurrent = activeSource?.id === item.id
-                return (
-                  <FocusableWrapper
-                    key={item.id}
-                    onEnter={() => handleSourceChange(item)}
-                    className={`
-                    flex items-center justify-between p-3 rounded-xl border transition-all
-                    ${isCurrent ? "bg-blue-500/10 border-blue-500/50 text-blue-400" : "bg-[#1a1a1a] border-white/5 text-gray-300"}
-                  `}
-                  >
-                    <div>
-                      <span className="text-xs font-bold block">
-                        {item.name}
-                      </span>
-                      <span className="text-[10px] opacity-50">
-                        {item.remarks}
-                      </span>
-                    </div>
-                    {isCurrent && <Check size={14} />}
-                  </FocusableWrapper>
-                )
-              })
-            : !isSourceSearching && (
-                <div className="text-[10px] text-gray-600 text-center py-4">
-                  暂无额外资源
-                </div>
-              )}
         </div>
       </div>
     </div>
   )
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-100 font-sans flex flex-col">
-      {/* 播放器 (Sticky) */}
-      <div className="sticky top-0 z-50 w-full bg-black shrink-0">
+    // 💡 修复滚动条问题：去掉 h-screen 和 overflow-hidden，使用 min-h-screen
+    <div className="min-h-screen bg-[#0a0a0a] text-gray-100 font-sans relative pb-10">
+      {/* 1. 播放器区域 (Sticky 吸顶) */}
+      <div className="sticky top-0 z-40 w-full bg-black shrink-0 shadow-xl shadow-black/50">
         <div className="aspect-video w-full relative group">
-          <FocusableWrapper
-            onEnter={() => navigate(-1)}
-            className="absolute top-4 left-4 z-20 p-2 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-emerald-500 transition-colors active:scale-90"
+          <button
+            onPointerUp={handleBack}
+            className="absolute top-4 left-4 z-50 p-2.5 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-emerald-500 transition-all active:scale-90 border border-white/10"
           >
             <ChevronLeft size={20} />
-          </FocusableWrapper>
+          </button>
 
           {isDetailLoading ? (
             <div className="w-full h-full flex flex-col items-center justify-center bg-[#111]">
@@ -361,148 +323,233 @@ const Detail = () => {
             </div>
           ) : currentEp ? (
             <Player
-              key={currentEp.link} // URL 变化时强制重载播放器
+              key={currentEp.link}
               url={currentEp.link}
-              poster={detail?.pic || detail?.poster}
+              poster={detail?.backdrop || detail?.poster}
               initialTime={startTime}
               onTimeUpdate={(t) => (currentTimeRef.current = t)}
               onEnded={() => {
                 if (currentEpIndex < episodes.length - 1) {
                   handleEpisodeChange(currentEpIndex + 1)
-                  toast.success("下一集")
+                  toast.success("自动播放下一集")
                 }
               }}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2 bg-[#111]">
+            <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-3 bg-[#111]">
               <Info size={32} />
-              <span className="text-xs">暂无播放资源</span>
+              <div className="text-center">
+                <p className="text-sm font-bold">暂无播放资源</p>
+                <p className="text-xs opacity-50 mt-1">
+                  请尝试下方的“全网搜索”功能
+                </p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* 顶部操作条 */}
-      <div className="bg-[#121212] px-4 py-3 flex items-center justify-between border-b border-white/5 shrink-0">
-        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
-          {/* 换源按钮 */}
-          <FocusableWrapper
-            onEnter={() => setShowSourcePanel(!showSourcePanel)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/5 active:bg-white/10"
-          >
-            {activeSource?.type === "local" ? (
-              <Database size={12} className="text-emerald-500" />
-            ) : (
-              <Globe size={12} className="text-blue-400" />
-            )}
-            <span className="text-[10px] font-bold max-w-[150px] truncate">
-              {activeSource?.name || "选择线路"}
-            </span>
-            <ChevronDown
-              size={12}
-              className={`text-gray-500 transition-transform ${showSourcePanel ? "rotate-180" : ""}`}
-            />
-          </FocusableWrapper>
+      {/* 2. 核心优化：季/源选择栏 (横向滚动) */}
+      {/* 这一块直接展示在文档流中，不再需要折叠 */}
+      <div className="bg-[#121212] border-b border-white/5">
+        <div className="px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-bold text-gray-400 flex items-center gap-1">
+              <Layers size={12} /> 版本 / 季数
+            </h3>
+            {/* 外部源搜素入口 */}
+            <button
+              onClick={() => setShowExternalPanel(true)}
+              className="text-[10px] text-blue-400 flex items-center gap-1 px-2 py-1 rounded-full bg-blue-500/10 active:bg-blue-500/20"
+            >
+              <Search size={10} />
+              全网云搜
+            </button>
+          </div>
 
-          <FocusableWrapper
-            className="px-2 py-1"
-            onEnter={() => toast("暂不支持", { icon: "📺" })}
-          >
-            <Cast size={16} className="text-gray-400" />
-          </FocusableWrapper>
+          <div className="flex flex-wrap justify-between  items-center pb-1">
+            {/* 渲染本地源 (即: 每一季) */}
+            {detail?.sources?.map((source, idx) => {
+              const sourceId = `local_${idx}`
+              const isActive = activeSource?.id === sourceId
+              return (
+                <button
+                  key={sourceId}
+                  onClick={() =>
+                    handleSourceChange({
+                      id: sourceId,
+                      name: source.vod_name || `版本 ${idx + 1}`,
+                      remarks: source.remarks,
+                      vod_play_url: source.vod_play_url,
+                      type: "local",
+                    })
+                  }
+                  className={`flex-shrink-0 px-4 py-2 rounded-lg w-[48%] my-2 text-xs font-bold transition-all border ${
+                    isActive
+                      ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20"
+                      : "bg-[#1E1E1E] text-gray-400 border-white/5 hover:bg-[#252525]"
+                  }`}
+                >
+                  {/* 优先显示 vod_name (例如: 怪奇物语 第二季) */}
+                  {source.vod_name || source.source_name || `线路 ${idx + 1}`}
+                  {source.remarks && (
+                    <span className="ml-1 opacity-60 text-[10px] font-normal">
+                      ({source.remarks})
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+
+            {/* 如果当前选中的是外部源，也显示在这里 */}
+            {activeSource?.type === "external" && (
+              <button className="flex-shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white border border-blue-500">
+                <Globe size={10} className="inline mr-1" />
+                {activeSource.name}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 源面板 */}
-      {showSourcePanel && renderSourcePanel()}
-
-      {/* 详情信息 */}
-      <div className="p-4 space-y-6 flex-1 overflow-y-auto">
+      {/* 3. 视频信息区域 */}
+      <div className="p-4 space-y-6">
+        {/* 标题与简介 */}
         <div>
-          <h1 className="text-xl font-bold text-white mb-2">{detail?.title}</h1>
-          <div className="flex gap-2 mb-3">
-            <span className="text-[10px] bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">
-              {detail?.year}
-            </span>
-            <span className="text-[10px] bg-white/10 text-gray-300 px-2 py-0.5 rounded">
-              {detail?.category}
-            </span>
+          <h1 className="text-xl font-bold text-white mb-2 leading-snug">
+            {detail?.title}
+          </h1>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {detail?.year && (
+              <span className="text-[10px] bg-white/10 text-gray-300 px-2 py-0.5 rounded backdrop-blur-md">
+                {detail.year}
+              </span>
+            )}
+            {detail?.category && (
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">
+                {detail.category}
+              </span>
+            )}
+            {activeSource?.type === "local" && (
+              <span className="text-[10px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded flex items-center gap-1">
+                <Sparkles size={10} /> 本地极速
+              </span>
+            )}
           </div>
-          <FocusableWrapper
-            onEnter={() => setIsDescExpanded(!isDescExpanded)}
-            className="p-1 rounded"
+
+          <div
+            onClick={() => setIsDescExpanded(!isDescExpanded)}
+            className="active:opacity-70 group cursor-pointer"
           >
             <p
-              className={`text-xs text-gray-400 leading-relaxed ${!isDescExpanded ? "line-clamp-2" : ""}`}
+              className={`text-xs text-gray-400 leading-relaxed transition-all ${!isDescExpanded ? "line-clamp-2" : ""}`}
             >
-              {detail?.content || "暂无简介"}
+              {detail?.content
+                ? detail.content.replace(/<[^>]+>/g, "")
+                : "暂无简介"}
             </p>
-          </FocusableWrapper>
+            {!isDescExpanded && (
+              <div className="flex justify-center -mt-2 group-hover:translate-y-1 transition-transform">
+                <span className="text-[10px] text-gray-600">▼</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* 选集 */}
+        {/* 4. 选集区域 (Grid) */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <PlayCircle size={16} className="text-emerald-500" />
-              <span className="text-sm font-bold">选集</span>
+              <span className="text-sm font-bold text-white">
+                选集 (
+                {activeSource?.name?.replace(detail?.title || "", "").trim() ||
+                  "正片"}
+                )
+              </span>
             </div>
-            <span className="text-[10px] text-gray-500">
-              {episodes.length} 集
+            <span className="text-[10px] text-gray-500 bg-[#1a1a1a] px-2 py-1 rounded-full">
+              共 {episodes.length} 集
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-2 max-h-80 overflow-y-auto content-start pr-1 custom-scrollbar">
-            {episodes.map((ep, idx) => (
-              <FocusableWrapper
-                key={idx}
-                onEnter={() => handleEpisodeChange(idx)}
-                className={`
-                  w-[calc(20%-6.5px)] h-10 rounded-lg flex items-center justify-center text-xs font-medium truncate px-1 transition-all
-                  ${
-                    idx === currentEpIndex
-                      ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/40"
-                      : "bg-[#1A1A1A] text-gray-400 border border-white/5"
-                  }
-                `}
-              >
-                {ep.name.replace(/第|集/g, "")}
-              </FocusableWrapper>
-            ))}
-          </div>
+          {episodes.length > 0 ? (
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              {episodes.map((ep, idx) => {
+                const isActive = idx === currentEpIndex
+                // 清洗集数名称，去掉冗余的“第”“集”
+                const cleanName = ep.name
+                  .replace(/第|集|Season|Episode/gi, "")
+                  .trim()
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleEpisodeChange(idx)}
+                    className={`
+                      h-10 rounded-lg flex items-center justify-center text-xs font-bold truncate transition-all active:scale-95
+                      ${
+                        isActive
+                          ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/30"
+                          : "bg-[#1A1A1A] text-gray-400 border border-white/5 hover:bg-[#252525] hover:text-white"
+                      }
+                    `}
+                  >
+                    {cleanName.length > 4 ? (
+                      <span className="text-[10px]">{cleanName}</span>
+                    ) : (
+                      cleanName
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-8 bg-[#151515] rounded-xl border border-dashed border-white/5">
+              <p className="text-xs text-gray-500">
+                该源暂无集数信息，请尝试切换其他版本
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* 猜你喜欢 */}
+        {/* 5. 猜你喜欢 */}
         {!isRecLoading && recommendations.length > 0 && (
           <div className="pt-6 mt-6 border-t border-white/5">
-            <h3 className="text-sm font-bold mb-4">猜你喜欢</h3>
+            <h3 className="text-sm font-bold mb-4 text-gray-200">猜你喜欢</h3>
             <div className="grid grid-cols-3 gap-3">
               {recommendations.map((item) => (
-                <FocusableWrapper
+                <div
                   key={item.id}
-                  onEnter={() => {
+                  onClick={() => {
                     navigate(`/detail/${item.id}`)
                     window.scrollTo(0, 0)
                   }}
-                  className="rounded-lg overflow-hidden"
+                  className="group active:scale-95 transition-transform duration-200 cursor-pointer"
                 >
-                  <div className="aspect-[2/3] bg-[#1a1a1a] relative">
+                  <div className="aspect-[2/3] bg-[#1a1a1a] rounded-lg overflow-hidden relative">
                     <img
                       src={getProxyUrl(item.poster)}
-                      className="w-full h-full object-cover"
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
                     />
+                    <div className="absolute top-1 right-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold text-white">
+                      {item.year}
+                    </div>
                   </div>
-                  <h4 className="text-xs text-gray-300 mt-2 line-clamp-1 p-1">
+                  <h4 className="text-xs text-gray-300 mt-2 line-clamp-1 group-hover:text-emerald-400 transition-colors">
                     {item.title}
                   </h4>
-                </FocusableWrapper>
+                </div>
               ))}
             </div>
           </div>
         )}
-        <div className="h-10"></div>
       </div>
+
+      {/* 弹出的全网搜索面板 */}
+      {showExternalPanel && renderExternalPanel()}
     </div>
   )
 }

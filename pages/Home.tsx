@@ -29,7 +29,7 @@ export default function Home() {
           fetchTmdbTopRated(), // 2. 高分电影 (TMDB数据)
           // 3. 高分美剧 (查本地库: 剧集 + 标签 + 评分排)
           // 记得用 tag='netflix' 或 tag='high_score' 配合后端逻辑
-          fetchVideos({ cat: "tv", tag: "netflix", sort: "rating" }),
+          fetchVideos({ tag: "netflix", sort: "rating" }),
           // 4. 院线新片 (查本地库: 电影 + 2025 + 按时间排)
           fetchVideos({ cat: "movie", year: "2025", sort: "time" }),
         ])
