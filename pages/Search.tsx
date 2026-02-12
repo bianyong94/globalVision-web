@@ -251,7 +251,6 @@ const Search = () => {
           <button
             key={t.value}
             onClick={() => {
-              window.scrollTo({ top: 0, behavior: "smooth" })
               setState((prev) => ({ ...prev, tag: t.value }))
             }}
             className={`px-3 py-1.5 text-xs rounded-full border transition-all whitespace-nowrap ${
@@ -334,7 +333,6 @@ const Search = () => {
             <button
               key={tab.key}
               onClick={() => {
-                window.scrollTo({ top: 0, behavior: "auto" })
                 setState((prev) => ({
                   ...prev,
                   cat: tab.key,
