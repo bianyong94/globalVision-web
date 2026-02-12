@@ -24,6 +24,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react"
+import SEO from "../components/SEO"
 
 // 定义统一的源结构
 interface UnifiedSource {
@@ -245,6 +246,73 @@ const Detail = () => {
 
   const currentEp = episodes[currentEpIndex]
 
+  // ✨ 新增：生成 SEO 元数据
+  const seoData = useMemo(() => {
+    if (!detail) return null
+
+    // 1. 清洗简介 HTML 标签，并截取前 120 字作为 description
+    const rawDesc = detail.content ? detail.content.replace(/<[^>]+>/g, "") : ""
+    const shortDesc =
+      rawDesc.slice(0, 120) + (rawDesc.length > 120 ? "..." : "")
+
+    // 2. 构建描述
+    const description = `在线观看《${detail.title}》(${detail.year})。${
+      detail.remarks ? `更新至${detail.remarks}。` : ""
+    }剧情简介：${shortDesc}`
+
+    // 3. 构建关键词 (片名 + 演员 + 导演 + 类型)
+    const keywords = [
+      detail.title,
+      detail.year?.toString(),
+      detail.category,
+      detail.director,
+      ...(detail.actors ? detail.actors.split(",") : []), // 假设演员是逗号分隔字符串
+      "高清在线",
+      "免费观看",
+      "极影聚合",
+    ].filter(Boolean) as string[]
+
+    return {
+      title: `${detail.title} ${detail.remarks ? `- ${detail.remarks}` : ""} - 高清在线观看`,
+      description,
+      keywords,
+      image: detail.poster,
+    }
+  }, [detail])
+
+  // ✨ 新增：生成结构化数据 (Schema.org) - 让 Google 显示富文本电影卡片
+  const jsonLd = useMemo(() => {
+    if (!detail) return null
+
+    // 区分电影还是电视剧
+    const isMovie = detail.category === "movie" || detail.type === "movie"
+    const schemaType = isMovie ? "Movie" : "TVSeries"
+
+    return {
+      "@context": "https://schema.org",
+      "@type": schemaType,
+      name: detail.title,
+      image: getProxyUrl(detail.poster),
+      description: detail.content?.replace(/<[^>]+>/g, ""),
+      datePublished: detail.year,
+      director: {
+        "@type": "Person",
+        name: detail.director || "Unknown",
+      },
+      actor:
+        detail.actors?.split(",").map((name) => ({
+          "@type": "Person",
+          name: name.trim(),
+        })) || [],
+      offers: {
+        "@type": "Offer",
+        availability: "https://schema.org/InStock",
+        price: "0",
+        priceCurrency: "CNY",
+      },
+    }
+  }, [detail])
+
   // 📺 渲染全网搜索面板 (仅用于外部源)
   const renderExternalPanel = () => (
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-in fade-in">
@@ -307,6 +375,22 @@ const Detail = () => {
   return (
     // 💡 修复滚动条问题：去掉 h-screen 和 overflow-hidden，使用 min-h-screen
     <div className="min-h-screen bg-[#0a0a0a] text-gray-100 font-sans relative pb-10">
+      {/* ✅ 插入 SEO 组件 */}
+      {seoData && (
+        <SEO
+          title={seoData.title}
+          description={seoData.description}
+          keywords={seoData.keywords}
+          image={getProxyUrl(seoData.image)} // 确保使用代理后的图片地址
+          type={detail?.category === "movie" ? "video.movie" : "video.tv_show"}
+        />
+      )}
+
+      {/* ✅ 插入 JSON-LD 结构化数据 (这对 Google 收录极重要) */}
+      {jsonLd && (
+        <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
+      )}
+
       {/* 1. 播放器区域 (Sticky 吸顶) */}
       <div className="sticky top-0 z-40 w-full bg-black shrink-0 shadow-xl shadow-black/50">
         <div className="aspect-video w-full relative group">

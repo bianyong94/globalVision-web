@@ -10,6 +10,7 @@ import { VideoItem, HomeData } from "../types"
 import { Loader2, RefreshCw } from "lucide-react"
 import { useState } from "react"
 import toast from "react-hot-toast"
+import SEO from "../components/SEO"
 
 // 定义首页数据的查询 Key
 const HOME_QUERY_KEY = ["home_data_v2"]
@@ -88,6 +89,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#141414] text-white pb-20">
+      <SEO
+        title="首页-极影聚合-CineVault Hub" // 最终显示：首页 - 极影聚合 - CineVault Hub
+        // 首页使用默认描述和关键词，不需要额外传
+      />
       {/* 🟢 悬浮刷新按钮 (复用 Search 页的样式) */}
       <button
         onClick={handleRefresh}

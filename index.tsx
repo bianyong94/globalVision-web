@@ -4,6 +4,7 @@ import App from "./App"
 // 1. 引入 React Query
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import "./index.css"
+import { HelmetProvider } from "react-helmet-async" // 引入这个
 
 // 2. 创建实例并配置默认策略
 const queryClient = new QueryClient({
@@ -35,7 +36,9 @@ const root = ReactDOM.createRoot(rootElement)
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <HelmetProvider>
+        <App />
+      </HelmetProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 )
