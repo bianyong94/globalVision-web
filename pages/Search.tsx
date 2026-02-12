@@ -17,7 +17,7 @@ import {
   SlidersHorizontal,
   ArrowUpDown,
 } from "lucide-react"
-
+import VideoList from "./VideoList" // 引入上面的组件
 // ==========================================
 // 1. 静态配置
 // ==========================================
@@ -121,6 +121,19 @@ const Search = () => {
   const [isSpinning, setIsSpinning] = useState(false)
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
+  // 新增：记录哪些 Tab 已经被用户点过了
+  const [visitedCats, setVisitedCats] = useState<Set<string>>(
+    new Set([state.cat]),
+  )
+
+  // 当 state.cat 变化时，将其加入已访问列表
+  useEffect(() => {
+    setVisitedCats((prev) => {
+      const newSet = new Set(prev)
+      newSet.add(state.cat)
+      return newSet
+    })
+  }, [state.cat])
   // ==========================================
   // 3. 数据请求
   // ==========================================
@@ -423,88 +436,31 @@ const Search = () => {
         </div>
       </div>
 
-      {/* 🔴 Content: Video Grid */}
-      <div className="px-4 mt-3 min-h-[50vh] relative">
-        {/* 骨架屏 - 统一为 Grid 样式 */}
-        {isFilterLoading && videos.length === 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            {[...Array(12)].map((_, i) => (
-              <div
-                key={i}
-                className="bg-[#1a1a1a] rounded-lg animate-pulse aspect-[2/3]"
-              />
-            ))}
-          </div>
-        )}
+      {/* 🔴 替换原来的 Video Grid 区域 */}
+      {/* 我们遍历所有分类，而不是只渲染当前分类 */}
+      {CATEGORIES.map((category) => {
+        // 性能优化：如果没有访问过这个 Tab，就不渲染 DOM，节省内存
+        if (!visitedCats.has(category.key)) return null
 
-        {/* 视频列表 - 始终为 Grid */}
-        {videos.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            {videos.map((v, index) => {
-              const displayVideo = { ...v, rating: v.rating.toFixed(1) || 0.0 }
-              return <VideoCard key={`${v.id}-${index}`} video={displayVideo} />
-            })}
-          </div>
-        )}
+        const isActive = state.cat === category.key
 
-        {/* Empty State */}
-        {isEmpty && (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-600 space-y-4">
-            <div className="w-20 h-20 bg-[#1a1a1a] rounded-full flex items-center justify-center border border-white/5">
-              <Film size={32} className="opacity-20" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-gray-400">未找到相关资源</p>
-              <p className="text-xs mt-1 opacity-50">
-                尝试更换关键词或筛选条件
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setState((prev) => ({
-                  ...prev,
-                  keyword: "",
-                  cat: "all",
-                  tag: "",
-                  year: "全部",
-                }))
-                setInputValue("")
-              }}
-              className="text-xs bg-emerald-500/10 text-emerald-500 px-4 py-2 rounded-full mt-2"
-            >
-              清空筛选
-            </button>
+        return (
+          <div
+            key={category.key}
+            // ✨ 魔法所在：使用 CSS 显隐，而不是销毁组件
+            style={{ display: isActive ? "block" : "none" }}
+          >
+            <VideoList
+              cat={category.key}
+              tag={state.tag} // 注意：这里假设 tag 是跟随 cat 变化的，或者你可以为每个 Tab 维护独立的 tag 状态
+              keyword={state.keyword}
+              year={state.year}
+              sort={state.sort}
+              isActive={isActive}
+            />
           </div>
-        )}
-
-        {/* Load More & Footer */}
-        <div ref={loadMoreRef} className="py-8 flex justify-center w-full">
-          {isFetchingNextPage ? (
-            <div className="flex items-center gap-2 text-emerald-500 text-xs px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <Loader2 className="animate-spin" size={14} /> 正在加载更多...
-            </div>
-          ) : !hasNextPage && videos.length > 0 ? (
-            <div className="flex items-center gap-2 opacity-30">
-              <div className="w-8 h-[1px] bg-gray-500"></div>
-              <span className="text-[10px] text-gray-500 uppercase tracking-widest">
-                THE END
-              </span>
-              <div className="w-8 h-[1px] bg-gray-500"></div>
-            </div>
-          ) : null}
-        </div>
-
-        {isError && (
-          <div className="text-center py-10">
-            <button
-              onClick={() => refetch()}
-              className="text-xs text-red-400 bg-red-500/10 px-4 py-2 rounded-full border border-red-500/20"
-            >
-              加载失败，点击重试
-            </button>
-          </div>
-        )}
-      </div>
+        )
+      })}
     </div>
   )
 }

@@ -32,6 +32,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
                 src={getProxyUrl(video.poster)}
                 alt={video.title}
                 loading="lazy"
+                decoding="async"
                 onError={handleImageError}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
@@ -71,6 +72,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
           <img
             src={getProxyUrl(video.poster)}
             loading="lazy"
+            decoding="async"
             alt={video.title}
             onError={handleImageError}
             referrerPolicy="no-referrer"
