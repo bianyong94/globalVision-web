@@ -16,6 +16,7 @@ import BottomNav from "./components/BottomNav"
 import Disclaimer from "./pages/Disclaimer"
 import PrivacyPolicy from "./pages/PrivacyPolicy"
 import { Toaster } from "react-hot-toast"
+import { AliveScope, KeepAlive } from "react-activation"
 
 // --- 🏗️ 布局容器 ---
 const MainLayout = () => {
@@ -51,19 +52,43 @@ const App = () => {
       />
 
       <Router>
-        <Routes>
-          {/* 主布局路由组 */}
-          <Route element={<MainLayout />}>
-            <Route path="/" element={<Home />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/disclaimer" element={<Disclaimer />} />
-            <Route path="/privacy" element={<PrivacyPolicy />} />
-          </Route>
+        <AliveScope>
+          <Routes>
+            {/* 主布局路由组 */}
+            <Route element={<MainLayout />}>
+              <Route
+                path="/"
+                element={
+                  <KeepAlive
+                    id="home"
+                    cacheKey="home"
+                    saveScrollPosition="screen"
+                  >
+                    <Home />
+                  </KeepAlive>
+                }
+              />
+              <Route
+                path="/search"
+                element={
+                  <KeepAlive
+                    id="search"
+                    cacheKey="search"
+                    saveScrollPosition="screen"
+                  >
+                    <Search />
+                  </KeepAlive>
+                }
+              />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/disclaimer" element={<Disclaimer />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+            </Route>
 
-          {/* 详情页通常全屏，不需要 Nav */}
-          <Route path="/detail/:id" element={<Detail />} />
-        </Routes>
+            {/* 详情页通常全屏，不需要 Nav */}
+            <Route path="/detail/:id" element={<Detail />} />
+          </Routes>
+        </AliveScope>
       </Router>
     </AuthProvider>
   )
