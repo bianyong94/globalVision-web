@@ -10,6 +10,7 @@ export const getProxyUrl = (url: string) => {
   if (url.startsWith("http://")) {
     return url.replace("http://", "https://")
   }
+  return url
 }
 
 // 工具函数：转义正则特殊字符
