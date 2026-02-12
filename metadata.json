@@ -1,5 +1,5 @@
 {
-  "name": "StreamHub",
+  "name": "CineVault Hub",
   "description": "A mobile-first video streaming application connecting to a Node.js backend for movies, TV shows, and anime.",
   "requestFramePermissions": []
 }
