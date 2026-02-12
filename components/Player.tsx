@@ -57,7 +57,14 @@ const Player: React.FC<PlayerProps> = ({
             hlsRef.current = null
           }
           if (Hls.isSupported()) {
-            const hls = new Hls()
+            const hls = new Hls({
+              // 增大缓冲区，减少卡顿 (单位：秒)
+              maxBufferLength: 60,
+              maxMaxBufferLength: 120,
+              // 遇到错误时尝试重连
+              manifestLoadingTimeOut: 20000,
+              manifestLoadingMaxRetry: 3,
+            })
             hls.loadSource(url)
             hls.attachMedia(video)
             hlsRef.current = hls

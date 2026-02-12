@@ -33,6 +33,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
                 alt={video.title}
                 loading="lazy"
                 onError={handleImageError}
+                referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />
               <div className="absolute top-1 right-1 bg-black/60 text-[10px] px-1 rounded text-white">
@@ -72,6 +73,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
             loading="lazy"
             alt={video.title}
             onError={handleImageError}
+            referrerPolicy="no-referrer"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
           <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
