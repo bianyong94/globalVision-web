@@ -46,7 +46,7 @@ api.interceptors.response.use(
     }
     toast.error(message, { id: "global_error" })
     return Promise.reject(error)
-  }
+  },
 )
 
 // =================================================================
@@ -72,7 +72,7 @@ export const fetchVideos = async (
     sort?: string // 排序: rating(评分), year(年份), 默认按时间
     wd?: string // 搜索关键词 (Search 页面复用此接口)
   },
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<SearchResult> => {
   const response = await api.get("/v2/videos", { params, signal })
 
@@ -87,7 +87,7 @@ export const fetchVideos = async (
 
 // 3. 视频详情
 export const fetchVideoDetail = async (
-  id: string | number
+  id: string | number,
 ): Promise<VideoDetail> => {
   // 注意：现在的 ID 可能是 "maotai_12345" 这种字符串格式
   const response = await api.get(`/detail/${id}`)
@@ -119,7 +119,7 @@ export const askAI = async (question: string): Promise<string[]> => {
 
 export const login = async (
   username: string,
-  password: string
+  password: string,
 ): Promise<User> => {
   const response = await api.post<AuthResponse>("/auth/login", {
     username,
@@ -133,7 +133,7 @@ export const login = async (
 
 export const register = async (
   username: string,
-  password: string
+  password: string,
 ): Promise<User> => {
   const response = await api.post<AuthResponse>("/auth/register", {
     username,
@@ -162,7 +162,7 @@ export const saveHistory = async (payload: {
 export const clearUserHistory = async (username: string): Promise<boolean> => {
   try {
     const response = await api.delete(
-      `/user/history?username=${encodeURIComponent(username)}`
+      `/user/history?username=${encodeURIComponent(username)}`,
     )
     return response.data.code === 200
   } catch (error) {
@@ -172,7 +172,7 @@ export const clearUserHistory = async (username: string): Promise<boolean> => {
 }
 
 export const fetchVideoSources = async (
-  title: string
+  title: string,
 ): Promise<VideoSource[]> => {
   // 注意：axios 的 params 会自动处理 URL 编码
   const response = await api.get("/v2/video/sources", { params: { title } })
@@ -222,4 +222,10 @@ export const matchLocalResource = async (params: {
 }> => {
   const response = await api.get("/v2/resource/match", { params })
   return response.data.data
+}
+
+export const ingestVideo = async (title: string): Promise<any> => {
+  // 因为 api 实例已经配置了 baseURL: '/api'，所以这里直接请求 /v2/ingest 即可
+  const response = await api.post("/v2/ingest", { title })
+  return response.data
 }

@@ -10,6 +10,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       host: "0.0.0.0",
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:3000", // 你的真实后端接口地址
+          changeOrigin: true, // 是否跨域
+          // 如果后端接口本身不带 /api，需要把 /api 移除掉；如果带，则不需要重写
+          // rewrite: (path) => path.replace(/^\/api/, '')
+        },
+      },
     },
     plugins: [
       react(),

@@ -16,6 +16,7 @@ export interface VideoSource {
   id?: string // feifan_12345 (跳转用的ID)
   source_key?: string
   source_name?: string
+  vod_name?: string
   source_id?: string // 采集站那边的 ID
   remarks?: string
   // 这里可以存储原始的 m3u8 字符串，或者解析后的数组，看你后端怎么给

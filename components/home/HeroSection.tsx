@@ -134,18 +134,25 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
       setIsLoading(false)
     }
   }
-
+  const onDragEnd = (e: any, { offset, velocity }: any) => {
+    const swipe = Math.abs(offset.x) > 50 && Math.abs(velocity.x) > 500
+    if (swipe && offset.x > 0) handlePrev()
+    else if (swipe && offset.x < 0) handleNext()
+  }
   return (
     <div className="relative w-full h-[60vh] md:h-[85vh] overflow-hidden group">
       {/* 🎬 背景轮播层 (使用 AnimatePresence 实现淡入淡出) */}
       <AnimatePresence mode="wait">
         <motion.div
-          key={currentItem.id} // Key 变化触发动画
-          initial={{ opacity: 0, scale: 1.1 }}
-          animate={{ opacity: 1, scale: 1 }}
+          key={currentItem.id}
+          drag="x" // 🚀 开启横向拖拽
+          dragConstraints={{ left: 0, right: 0 }}
+          onDragEnd={onDragEnd}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.8 }}
-          className="absolute inset-0"
+          transition={{ duration: 0.5 }}
+          className="absolute inset-0 cursor-grab active:cursor-grabbing"
         >
           <img
             src={currentItem.backdrop || currentItem.poster}
@@ -175,7 +182,7 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
       </div>
 
       {/* 📝 内容层 */}
-      <div className="absolute bottom-0 left-0 w-full p-6 md:p-12 pb-16 md:pb-24 z-20 flex flex-col gap-4 max-w-3xl">
+      <div className="absolute bottom-12 left-0 w-full p-6 md:p-12 pb-16 md:pb-24 z-20 flex flex-col gap-4 max-w-3xl">
         {/* 标签动画 */}
         <motion.div
           key={`tags-${currentItem.id}`}
@@ -255,7 +262,7 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
       </div>
 
       {/* 🚦 底部指示器 (Dots) */}
-      <div className="absolute bottom-6 right-6 md:right-12 z-30 flex gap-2">
+      <div className="absolute bottom-20 right-6 md:right-12 z-30 flex gap-2">
         {items.map((_, idx) => (
           <button
             key={idx}

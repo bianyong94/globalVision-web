@@ -441,14 +441,6 @@ const Detail = () => {
             <h3 className="text-xs font-bold text-gray-400 flex items-center gap-1">
               <Layers size={12} /> 版本 / 季数
             </h3>
-            {/* 外部源搜素入口 */}
-            <button
-              onClick={() => setShowExternalPanel(true)}
-              className="text-[10px] text-blue-400 flex items-center gap-1 px-2 py-1 rounded-full bg-blue-500/10 active:bg-blue-500/20"
-            >
-              <Search size={10} />
-              全网云搜
-            </button>
           </div>
 
           <div className="flex flex-wrap justify-between  items-center pb-1">
@@ -495,7 +487,16 @@ const Detail = () => {
           </div>
         </div>
       </div>
-
+      <div className="flex justify-center">
+        {/* 外部源搜素入口 */}
+        <button
+          onClick={() => setShowExternalPanel(true)}
+          className="text-[12px] mt-5 text-blue-400 flex items-center gap-1 px-2 py-1 rounded-full bg-blue-500/10 active:bg-blue-500/20"
+        >
+          <Search size={12} />
+          资源加载慢？试试切换线路
+        </button>
+      </div>
       {/* 3. 视频信息区域 */}
       <div className="p-4 space-y-6">
         {/* 标题与简介 */}
