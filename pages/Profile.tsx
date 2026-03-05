@@ -98,6 +98,9 @@ const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
 
   // 1. 本地已有：显示精美横向卡片
   if (status === "local" && videoData) {
+    const directPoster = videoData.poster
+      ? String(videoData.poster).replace(/^http:\/\//i, "https://")
+      : ""
     return (
       <div
         onClick={() => navigate(`/detail/${videoData.id}`)}
@@ -105,7 +108,12 @@ const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
       >
         <div className="w-16 h-20 shrink-0 rounded-lg overflow-hidden bg-gray-800">
           <img
-            src={getProxyUrl(videoData.poster)}
+            src={getProxyUrl(videoData.poster, { forceProxy: true, w: 320, q: 72 })}
+            onError={(e) => {
+              if (directPoster && e.currentTarget.src !== directPoster) {
+                e.currentTarget.src = directPoster
+              }
+            }}
             className="w-full h-full object-cover"
             alt={videoData.title}
           />
@@ -228,33 +236,14 @@ const Profile = () => {
     }
   }, [isAuthenticated, user])
 
-  // 🚀 [终极智能版] 包含意图识别与绝对格式约束的 AI 提示词
+  // AI 搜索：由后端执行检索+重排，这里直接传用户原始输入
   const handleAskAI = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!aiPrompt.trim()) return
     setAiLoading(true)
     setAiResults([])
     try {
-      const enhancedPrompt = `你现在是一个冷酷且精准的影视数据库核心API。
-用户输入了以下内容：“${aiPrompt}”
-
-请你立刻在内部进行【意图识别】，并严格按照以下两种分支之一输出结果：
-
-分支 A【精准定位】：如果用户输入的是某一部特定的影视、动漫或综艺名称（哪怕有错别字、简称、别名，如“大圣归来”、“莎拉的真伪”），请凭借知识库推断出它的【官方完整原名】，并且只输出这 1 个名字。
-分支 B【泛化推荐】：如果用户是求推荐，或者输入的是演员名、导演名、类型、年份等（例如“推荐好看的剧”、“申惠善演的剧”、“2023高分科幻片”、“周星驰”），请推荐 3 到 5 部最经典的符合条件的影视作品名字。
-
-【最高格式禁令】（违背将被重置）：
-1. 所有的影视名字必须严格使用书名号《》包裹。
-2. 绝对、绝对不允许输出任何问候语、解释性文字、前缀、后缀、编号（如"1."）。
-3. 如果有多个结果，请用一个空格隔开。
-
-正确输出示例：
-（如果走分支A）：《西游记之大圣归来》
-（如果走分支B）：《秘密森林》 《哲仁王后》 《莎拉的真伪人生》
-
-现在，请直接输出你的结果：`
-
-      const results = await askAI(enhancedPrompt)
+      const results = await askAI(aiPrompt.trim())
       setAiResults(results)
     } catch (error) {
       setAiResults(["服务繁忙，请重试"])
@@ -266,10 +255,29 @@ const Profile = () => {
   // 🚀 [优化2] 增强字符串提取鲁棒性
   const extractMovieTitles = (texts: string[]) => {
     const titles = new Set<string>()
+    const isNoise = (text: string) =>
+      /(无法|联网|实时|根据|推测|以下|信息|数据|建议|推荐|评分|格式|输出)/i.test(
+        text,
+      ) || /^\d+$/.test(text)
+
     texts.forEach((text) => {
       const matches = text.match(/《(.*?)》/g)
       if (matches) {
-        matches.forEach((m) => titles.add(m.replace(/[《》]/g, "").trim()))
+        matches.forEach((m) => {
+          const title = m.replace(/[《》]/g, "").trim()
+          if (title && !isNoise(title) && title.length <= 40) {
+            titles.add(title)
+          }
+        })
+      } else {
+        text
+          .split(/[，,、]/)
+          .map((item) => item.trim())
+          .filter(
+            (item) =>
+              item.length > 1 && item.length <= 40 && !isNoise(item),
+          )
+          .forEach((item) => titles.add(item))
       }
     })
 
@@ -280,9 +288,10 @@ const Profile = () => {
         // 去掉包含“指令”等系统性废话的内容
         if (
           cleanText.length > 0 &&
-          cleanText.length < 15 &&
+          cleanText.length < 40 &&
           !cleanText.includes("指令") &&
-          !cleanText.includes("服务")
+          !cleanText.includes("服务") &&
+          !isNoise(cleanText)
         ) {
           titles.add(cleanText)
         }
@@ -291,7 +300,18 @@ const Profile = () => {
     return Array.from(titles)
   }
 
-  const goToDetail = (video: any) => navigate(`/detail/${video.id}`)
+  const goToDetail = (video: any) => {
+    const params = new URLSearchParams()
+    if (video.sourceRef) params.set("source", video.sourceRef)
+    const seasonFromTitle =
+      String(video.title || "").match(
+        /第\s*[一二两三四五六七八九十百\d]+\s*[季部]|Season\s*\d+|S\d{1,2}/i,
+      )?.[0] || ""
+    const seasonParam = video.seasonLabel || seasonFromTitle
+    if (seasonParam) params.set("season", seasonParam)
+    const query = params.toString()
+    navigate(`/detail/${video.id}${query ? `?${query}` : ""}`)
+  }
 
   const formatProgress = (seconds: number) => {
     if (!seconds || seconds < 0) return "刚刚"
@@ -526,7 +546,15 @@ const Profile = () => {
                   {/* 海报容器 */}
                   <div className="aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 relative border border-white/5">
                     <img
-                      src={getProxyUrl(item.poster)}
+                      src={getProxyUrl(item.poster, { forceProxy: true, w: 320, q: 72 })}
+                      onError={(e) => {
+                        const raw = item.poster
+                          ? String(item.poster).replace(/^http:\/\//i, "https://")
+                          : ""
+                        if (raw && e.currentTarget.src !== raw) {
+                          e.currentTarget.src = raw
+                        }
+                      }}
                       className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
                       loading="lazy"
                     />

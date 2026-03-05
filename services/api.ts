@@ -16,7 +16,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 20000, // 20s timeout
+  timeout: 100000, // 20s timeout
 })
 
 // ... (拦截器部分保持不变，不需要动) ...
@@ -71,6 +71,7 @@ export const fetchVideos = async (
     year?: string // 年份
     sort?: string // 排序: rating(评分), year(年份), 默认按时间
     wd?: string // 搜索关键词 (Search 页面复用此接口)
+    view?: "season"
   },
   signal?: AbortSignal,
 ): Promise<SearchResult> => {
@@ -152,7 +153,14 @@ export const fetchHistory = async (username: string): Promise<any[]> => {
 
 export const saveHistory = async (payload: {
   username: string
-  video: { id: string | number; title: string; poster: string; type: string }
+  video: {
+    id: string | number
+    title: string
+    poster: string
+    type: string
+    seasonLabel?: string
+    sourceRef?: string
+  }
   episodeIndex: number
   progress: number
 }) => {

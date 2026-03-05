@@ -9,6 +9,9 @@ export interface VideoSummary {
   rating?: number | string
   date?: string
   overview?: string
+  source_ref?: string
+  season_no?: number | null
+  season_label?: string
 }
 export interface VideoSource {
   key?: string // feifan
@@ -17,8 +20,11 @@ export interface VideoSource {
   source_key?: string
   source_name?: string
   vod_name?: string
+  vod_id?: string
   source_id?: string // 采集站那边的 ID
   remarks?: string
+  health?: "good" | "unknown" | "bad"
+  latency_ms?: number | null
   // 这里可以存储原始的 m3u8 字符串，或者解析后的数组，看你后端怎么给
   // 如果后端返回的是字符串 "第1集$url#第2集$url"，前端需要解析
   vod_play_url: string
@@ -78,6 +84,9 @@ export interface VideoItem {
   category?: string // 新增
   tags?: string[] // 新增
   overview?: string // 新增
+  source_ref?: string
+  season_no?: number | null
+  season_label?: string
   // ... 其他字段
 }
 export interface SearchResult {

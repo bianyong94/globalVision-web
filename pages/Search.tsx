@@ -161,7 +161,10 @@ const Search = () => {
         year: state.year === "全部" ? undefined : state.year,
         sort: state.sort,
       }
-      if (state.keyword) params.wd = state.keyword
+      if (state.keyword) {
+        params.wd = state.keyword
+        params.view = "season"
+      }
       if (state.cat && state.cat !== "all") params.cat = state.cat
       if (state.tag) params.tag = state.tag
 

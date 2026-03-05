@@ -11,6 +11,13 @@ interface Props {
 
 const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
   const navigate = useNavigate()
+  const goToDetail = () => {
+    const sourceQuery = video.source_ref
+      ? `?source=${encodeURIComponent(video.source_ref)}`
+      : ""
+    navigate(`/detail/${video.id}${sourceQuery}`)
+  }
+
   const handleImageError = (
     e: React.SyntheticEvent<HTMLImageElement, Event>,
   ) => {
@@ -24,12 +31,12 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
           className="group relative flex flex-col gap-2 rounded-xl" // 基础样式移到这里
         >
           <div
-            onClick={() => navigate(`/detail/${video._id}`)}
+            onClick={goToDetail}
             className="flex gap-3 bg-surface rounded-lg overflow-hidden p-2 mb-3 cursor-pointer active:scale-95 transition-transform"
           >
             <div className="relative w-24 h-32 flex-shrink-0 rounded-md overflow-hidden bg-gray-800">
               <img
-                src={getProxyUrl(video.poster)}
+                src={getProxyUrl(video.poster, { w: 320, q: 70 })}
                 alt={video.title}
                 loading="lazy"
                 decoding="async"
@@ -65,12 +72,12 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
       className="group relative flex flex-col gap-2 rounded-xl" // 基础样式移到这里
     >
       <div
-        onClick={() => navigate(`/detail/${video.id}`)}
+        onClick={goToDetail}
         className="relative flex flex-col cursor-pointer group"
       >
         <div className="relative aspect-[3/4.5] rounded-lg overflow-hidden bg-gray-800 mb-2">
           <img
-            src={getProxyUrl(video.poster)}
+            src={getProxyUrl(video.poster, { w: 320, q: 70 })}
             loading="lazy"
             decoding="async"
             alt={video.title}

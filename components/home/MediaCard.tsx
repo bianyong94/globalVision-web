@@ -75,12 +75,13 @@ export const MediaCard = ({ video, layout = "portrait" }: MediaCardProps) => {
         <img
           src={
             layout === "landscape"
-              ? getProxyUrl(video.backdrop) || getProxyUrl(video.poster)
-              : getProxyUrl(video.poster)
+              ? getProxyUrl(video.backdrop || video.poster, { w: 640, q: 70 })
+              : getProxyUrl(video.poster, { w: 360, q: 70 })
           }
           alt={video.title}
           className="w-full h-full object-cover transition-opacity duration-300 group-hover:opacity-80"
           loading="lazy"
+          decoding="async"
         />
 
         {/* 悬停时的遮罩层 */}

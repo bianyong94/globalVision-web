@@ -39,7 +39,10 @@ const VideoList: React.FC<VideoListProps> = ({
         year: year === "全部" ? undefined : year,
         sort: sort,
       }
-      if (keyword) params.wd = keyword
+      if (keyword) {
+        params.wd = keyword
+        params.view = "season"
+      }
       if (cat && cat !== "all") params.cat = cat
       if (tag) params.tag = tag
 

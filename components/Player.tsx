@@ -9,6 +9,7 @@ interface PlayerProps {
   initialTime?: number
   onTimeUpdate?: (time: number) => void
   onEnded?: () => void
+  onError?: () => void
 }
 
 const Player: React.FC<PlayerProps> = ({
@@ -18,6 +19,7 @@ const Player: React.FC<PlayerProps> = ({
   initialTime,
   onTimeUpdate,
   onEnded,
+  onError,
 }) => {
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
@@ -87,6 +89,13 @@ const Player: React.FC<PlayerProps> = ({
 
     art.on("video:ended", () => {
       if (onEnded) onEnded()
+    })
+
+    art.on("error", () => {
+      if (onError) onError()
+    })
+    art.on("video:error", () => {
+      if (onError) onError()
     })
 
     playerRef.current = art

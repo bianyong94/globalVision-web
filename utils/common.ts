@@ -1,16 +1,37 @@
-// 处理图片的工具函数
-export const getProxyUrl = (url: string) => {
-  if (!url) return ""
-  // 如果已经是 https 且看起来很快的源，可以跳过 (可选)
-  // 这里使用 weserv.nl 免费图片代理及缓存服务
-  // 它可以把 http 转 https，自动压缩图片，且在全球有 CDN
-  // return `https://wsrv.nl/?url=${encodeURIComponent(
-  //   url,
-  // )}&w=300&h=450&fit=cover&a=top`
-  if (url.startsWith("http://")) {
-    return url.replace("http://", "https://")
-  }
-  return url
+interface ProxyOptions {
+  w?: number
+  q?: number
+  forceProxy?: boolean
 }
 
-// 工具函数：转义正则特殊字符
+const resolveApiBase = () => {
+  const raw = (import.meta.env.VITE_API_BASE_URL || "/api").trim()
+  if (raw.endsWith("/api")) return raw
+  if (raw.endsWith("/api/")) return raw.slice(0, -1)
+  return `${raw.replace(/\/+$/, "")}/api`
+}
+
+export const getProxyUrl = (url?: string, options: ProxyOptions = {}) => {
+  if (!url) return ""
+  if (url.includes("/api/image/proxy?url=")) return url
+
+  const normalized = url.startsWith("//") ? `https:${url}` : url
+  const directUrl = normalized.startsWith("http://")
+    ? normalized.replace("http://", "https://")
+    : normalized
+
+  // 本地开发优先直连，避免后端未重启或代理限制导致整站无图。
+  if (import.meta.env.DEV && !options.forceProxy) return directUrl
+
+  const apiBase = resolveApiBase()
+  const params = new URLSearchParams({ url: directUrl })
+
+  if (options.w && Number.isFinite(options.w)) {
+    params.set("w", String(Math.max(100, Math.floor(options.w))))
+  }
+  if (options.q && Number.isFinite(options.q)) {
+    params.set("q", String(Math.min(95, Math.max(40, Math.floor(options.q)))))
+  }
+
+  return `${apiBase}/image/proxy?${params.toString()}`
+}

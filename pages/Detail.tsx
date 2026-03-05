@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { getProxyUrl } from "../utils/common"
 import {
   fetchVideoDetail,
@@ -33,12 +33,24 @@ interface UnifiedSource {
   remarks: string
   vod_play_url: string
   type: "local" | "external"
+  health?: "good" | "unknown" | "bad"
+  latency_ms?: number | null
+  source_ref?: string
 }
 
 const Detail = () => {
   const { id: routeId } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
+  const preferredSourceRef = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get("source") || ""
+  }, [location.search])
+  const preferredSeasonLabel = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get("season") || ""
+  }, [location.search])
 
   // 状态
   const [detail, setDetail] = useState<VideoDetail | null>(null)
@@ -64,6 +76,7 @@ const Detail = () => {
   const currentEpIndexRef = useRef(0)
   const currentTimeRef = useRef(0)
   const userRef = useRef(user)
+  const activeSourceRef = useRef<UnifiedSource | null>(null)
 
   // 🔄 核心修复：进入页面强制滚动到顶部
   useEffect(() => {
@@ -73,6 +86,10 @@ const Detail = () => {
   useEffect(() => {
     userRef.current = user
   }, [user])
+
+  useEffect(() => {
+    activeSourceRef.current = activeSource
+  }, [activeSource])
 
   // 计算当前源的集数列表
   const episodes = useMemo(() => {
@@ -85,6 +102,59 @@ const Detail = () => {
       }
     })
   }, [activeSource])
+
+  const localSourceOptions = useMemo<UnifiedSource[]>(() => {
+    if (!detail?.sources?.length) return []
+    return detail.sources.map((source, idx) => ({
+      id: `local_${idx}`,
+      name: source.vod_name || source.source_name || `线路 ${idx + 1}`,
+      remarks: source.remarks || "",
+      vod_play_url:
+        source.vod_play_url ||
+        (source as any).play_url ||
+        (source as any).url ||
+        "",
+      type: "local",
+      health: (source as any).health,
+      latency_ms:
+        typeof (source as any).latency_ms === "number"
+          ? (source as any).latency_ms
+          : null,
+      source_ref:
+        source.source_key && (source as any).vod_id
+          ? `${source.source_key}::${(source as any).vod_id}`
+          : "",
+    }))
+  }, [detail?.sources])
+
+  const pickBestSource = useCallback(
+    (list: UnifiedSource[], preferredRef?: string, preferredSeason?: string) => {
+    if (!list || list.length === 0) return null
+      if (preferredRef) {
+        const matched = list.find((item) => item.source_ref === preferredRef)
+        if (matched) return matched
+      }
+      if (preferredSeason) {
+        const seasonRegex = new RegExp(preferredSeason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+        const seasonMatched = list.find((item) => seasonRegex.test(item.name))
+        if (seasonMatched) return seasonMatched
+      }
+    const rank = { good: 0, unknown: 1, bad: 2 }
+    const sorted = [...list].sort((a, b) => {
+      const healthA = rank[a.health || "unknown"] ?? 1
+      const healthB = rank[b.health || "unknown"] ?? 1
+      if (healthA !== healthB) return healthA - healthB
+
+      const latencyA =
+        typeof a.latency_ms === "number" ? a.latency_ms : Number.MAX_SAFE_INTEGER
+      const latencyB =
+        typeof b.latency_ms === "number" ? b.latency_ms : Number.MAX_SAFE_INTEGER
+      return latencyA - latencyB
+    })
+    return sorted[0]
+    },
+    [],
+  )
 
   // 1. 加载数据
   useEffect(() => {
@@ -113,22 +183,37 @@ const Detail = () => {
 
         // 🎯 默认选中第一个源（第一季或最新季，取决于你入库顺序）
         if (videoData.sources && videoData.sources.length > 0) {
-          const defaultSource = videoData.sources[0]
-          setActiveSource({
-            id: `local_0`,
-            name:
-              defaultSource.vod_name || defaultSource.source_name || "默认资源",
-            remarks: defaultSource.remarks,
-            vod_play_url: defaultSource.vod_play_url,
-            type: "local",
-          })
+          const options: UnifiedSource[] = videoData.sources.map(
+            (source: any, idx: number) => ({
+              id: `local_${idx}`,
+              name: source.vod_name || source.source_name || `线路 ${idx + 1}`,
+              remarks: source.remarks || "",
+              vod_play_url: source.vod_play_url,
+              type: "local",
+              health: source.health,
+              latency_ms:
+                typeof source.latency_ms === "number" ? source.latency_ms : null,
+              source_ref:
+                source.source_key && source.vod_id
+                  ? `${source.source_key}::${source.vod_id}`
+                  : "",
+            }),
+          )
+          setActiveSource(
+            pickBestSource(options, preferredSourceRef, preferredSeasonLabel) ||
+              options[0],
+          )
         }
 
         // 恢复历史记录
         if (user && historyList) {
-          const record = historyList.find(
-            (h: any) => String(h.id) === String(videoData.id),
-          )
+          const record = historyList.find((h: any) => {
+            if (String(h.id) !== String(videoData.id)) return false
+            if (preferredSourceRef) return String(h.sourceRef || "") === preferredSourceRef
+            if (preferredSeasonLabel)
+              return String(h.seasonLabel || "").includes(preferredSeasonLabel)
+            return true
+          })
           if (record) {
             setCurrentEpIndex(record.episodeIndex || 0)
             setStartTime(record.progress || 0)
@@ -145,7 +230,13 @@ const Detail = () => {
       }
     }
     loadData()
-  }, [routeId, user?.username])
+  }, [
+    routeId,
+    user?.username,
+    pickBestSource,
+    preferredSourceRef,
+    preferredSeasonLabel,
+  ])
 
   const searchExternalSources = async (title: string) => {
     const cleanTitle = title
@@ -180,6 +271,19 @@ const Detail = () => {
     toast.success(`已切换至: ${newSource.name}`)
   }
 
+  const handlePlayerError = useCallback(() => {
+    if (!activeSource) return
+    const merged = [...localSourceOptions, ...externalSources]
+    if (merged.length <= 1) return
+
+    const currentIndex = merged.findIndex((s) => s.id === activeSource.id)
+    const nextSource = merged[currentIndex + 1] || merged[0]
+    if (!nextSource || nextSource.id === activeSource.id) return
+
+    toast.error("当前线路不稳定，已自动切换")
+    handleSourceChange(nextSource)
+  }, [activeSource, externalSources, localSourceOptions])
+
   const loadRecommendations = async (cat: string, currentId: string) => {
     try {
       let res = await fetchVideos({ cat, pg: 1 }).catch(() => ({ list: [] }))
@@ -196,13 +300,27 @@ const Detail = () => {
   const saveProgressToDB = useCallback(() => {
     if (!userRef.current || !detailRef.current) return
     if (currentTimeRef.current > 5) {
+      const currentSource = activeSourceRef.current
+      const baseTitle = detailRef.current.title || ""
+      const seasonSuffix =
+        currentSource?.name
+          ?.replace(baseTitle, "")
+          .trim()
+          .match(/第[一二两三四五六七八九十百\d]+[季部]|Season\s*\d+|S\d{1,2}/i)?.[0] ||
+        ""
+      const historyTitle = seasonSuffix
+        ? `${baseTitle} ${seasonSuffix}`.trim()
+        : baseTitle
+
       saveHistory({
         username: userRef.current.username,
         video: {
           id: detailRef.current.id,
-          title: detailRef.current.title,
+          title: historyTitle,
           poster: detailRef.current.poster,
           type: detailRef.current.category || "video",
+          seasonLabel: seasonSuffix,
+          sourceRef: currentSource?.source_ref || "",
         },
         episodeIndex: currentEpIndexRef.current,
         progress: currentTimeRef.current,
@@ -409,9 +527,13 @@ const Detail = () => {
             <Player
               key={currentEp.link}
               url={currentEp.link}
-              poster={detail?.backdrop || detail?.poster}
+              poster={getProxyUrl(detail?.backdrop || detail?.poster, {
+                w: 1280,
+                q: 75,
+              })}
               initialTime={startTime}
               onTimeUpdate={(t) => (currentTimeRef.current = t)}
+              onError={handlePlayerError}
               onEnded={() => {
                 if (currentEpIndex < episodes.length - 1) {
                   handleEpisodeChange(currentEpIndex + 1)
@@ -445,21 +567,12 @@ const Detail = () => {
 
           <div className="flex flex-wrap justify-between  items-center pb-1">
             {/* 渲染本地源 (即: 每一季) */}
-            {detail?.sources?.map((source, idx) => {
-              const sourceId = `local_${idx}`
-              const isActive = activeSource?.id === sourceId
+            {localSourceOptions.map((source) => {
+              const isActive = activeSource?.id === source.id
               return (
                 <button
-                  key={sourceId}
-                  onClick={() =>
-                    handleSourceChange({
-                      id: sourceId,
-                      name: source.vod_name || `版本 ${idx + 1}`,
-                      remarks: source.remarks,
-                      vod_play_url: source.vod_play_url,
-                      type: "local",
-                    })
-                  }
+                  key={source.id}
+                  onClick={() => handleSourceChange(source)}
                   className={`flex-shrink-0 px-4 py-2 rounded-lg w-[48%] my-2 text-xs font-bold transition-all border ${
                     isActive
                       ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20"
@@ -467,10 +580,15 @@ const Detail = () => {
                   }`}
                 >
                   {/* 优先显示 vod_name (例如: 怪奇物语 第二季) */}
-                  {source.vod_name || source.source_name || `线路 ${idx + 1}`}
+                  {source.name}
                   {source.remarks && (
                     <span className="ml-1 opacity-60 text-[10px] font-normal">
                       ({source.remarks})
+                    </span>
+                  )}
+                  {typeof source.latency_ms === "number" && (
+                    <span className="ml-1 opacity-70 text-[10px] font-normal">
+                      {source.latency_ms}ms
                     </span>
                   )}
                 </button>
@@ -614,10 +732,11 @@ const Detail = () => {
                 >
                   <div className="aspect-[2/3] bg-[#1a1a1a] rounded-lg overflow-hidden relative">
                     <img
-                      src={getProxyUrl(item.poster)}
+                      src={getProxyUrl(item.poster, { w: 280, q: 70 })}
                       alt={item.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
+                      decoding="async"
                     />
                     <div className="absolute top-1 right-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold text-white">
                       {item.year}

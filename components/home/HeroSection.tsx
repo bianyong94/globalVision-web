@@ -5,6 +5,7 @@ import { VideoItem } from "@/types"
 import { useNavigate } from "react-router-dom"
 import { matchLocalResource } from "@/services/api"
 import toast from "react-hot-toast"
+import { getProxyUrl } from "@/utils/common"
 
 interface HeroSectionProps {
   items: VideoItem[] // 接收数组
@@ -155,9 +156,15 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
           className="absolute inset-0 cursor-grab active:cursor-grabbing"
         >
           <img
-            src={currentItem.backdrop || currentItem.poster}
+            src={getProxyUrl(currentItem.backdrop || currentItem.poster, {
+              w: 1280,
+              q: 72,
+            })}
             alt={currentItem.title}
             className="w-full h-full object-cover"
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
           />
           {/* 渐变遮罩 */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent" />
