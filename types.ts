@@ -67,7 +67,7 @@ export interface HomeData {
   banners: VideoItem[]
   sections: {
     title: string
-    type: "scroll" | "grid"
+    type: "scroll" | "grid" | "rank" | "shelf"
     data: VideoItem[]
   }[]
 }

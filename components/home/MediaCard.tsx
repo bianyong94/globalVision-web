@@ -9,7 +9,6 @@ import { getProxyUrl } from "@/utils/common"
 interface MediaCardProps {
   video: VideoItem
   layout?: "portrait" | "landscape"
-  year: string | number // 竖图或横图
 }
 
 export const MediaCard = ({ video, layout = "portrait" }: MediaCardProps) => {
@@ -17,8 +16,11 @@ export const MediaCard = ({ video, layout = "portrait" }: MediaCardProps) => {
 
   const handleClick = async () => {
     // 如果已有本地 ID (说明是普通列表查出来的)，直接跳转
+    const isObjectId =
+      typeof video.id === "string" && /^[0-9a-fA-F]{24}$/.test(video.id)
     if (
       (typeof video.id === "string" && video.id.includes("_")) ||
+      isObjectId ||
       (video as any).uniq_id
     ) {
       navigate(`/detail/${video.id}`)
