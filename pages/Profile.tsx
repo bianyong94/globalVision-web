@@ -7,10 +7,12 @@ import {
   fetchHistory,
   clearUserHistory,
   ingestVideo,
-  fetchVideos,
+  ingestVideoBySource,
+  matchLocalResource,
 } from "../services/api"
 import { useNavigate, Link } from "react-router-dom"
 import { getProxyUrl } from "../utils/common"
+import type { AiCandidate } from "../types"
 
 import {
   LogOut,
@@ -35,7 +37,7 @@ import toast from "react-hot-toast"
 // 🟢 [新增] AI 智能搜片入库卡片组件
 // 负责单个影片的去向检查和一键入库
 // 🟢 [优化版] 智能资源卡片：支持本地预览与一键入库
-const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
+const AiResourceCard: React.FC<{ candidate: AiCandidate }> = ({ candidate }) => {
   // 状态：checking(核验中), local(本地已有), idle(全网有但本地无), ingesting(采录中), failed(全网无)
   const [status, setStatus] = useState<
     "checking" | "local" | "idle" | "ingesting" | "failed"
@@ -47,21 +49,29 @@ const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
     let isMounted = true
     const checkLocal = async () => {
       try {
-        // 使用 api.ts 中的 fetchVideos 检查本地
-        const data = await fetchVideos({ wd: movieTitle })
-        if (!isMounted) return
+        if (candidate.source === "local" && candidate.id) {
+          setVideoData(candidate)
+          setStatus("local")
+          return
+        }
 
-        if (data && data.list && data.list.length > 0) {
-          const match = data.list.find(
-            (v: any) =>
-              v.title.includes(movieTitle) || movieTitle.includes(v.title),
-          )
-          if (match) {
-            setVideoData(match)
-            setStatus("local") // 🚀 识别为本地资源
+        if (candidate.source === "tmdb" && candidate.tmdb_id) {
+          const match = await matchLocalResource({
+            tmdb_id: candidate.tmdb_id,
+            title: candidate.title,
+            category: candidate.category,
+            year: candidate.year,
+          })
+          if (!isMounted) return
+          if (match?.found && match.id) {
+            setVideoData({ id: match.id, title: match.title || candidate.title })
+            setStatus("local")
             return
           }
+          setStatus("idle")
+          return
         }
+
         setStatus("idle")
       } catch (e) {
         if (isMounted) setStatus("idle")
@@ -71,18 +81,24 @@ const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
     return () => {
       isMounted = false
     }
-  }, [movieTitle])
+  }, [candidate])
 
   const handleIngestAction = async () => {
     setStatus("ingesting")
-    const toastId = toast.loading(`正在全网采录《${movieTitle}》...`)
+    const toastId = toast.loading(`正在全网采录《${candidate.title}》...`)
     try {
-      const data = await ingestVideo(movieTitle)
+      const data =
+        candidate.source === "external" && candidate.source_key && candidate.vod_id
+          ? await ingestVideoBySource({
+              source_key: candidate.source_key,
+              vod_id: candidate.vod_id,
+            })
+          : await ingestVideo(candidate.title)
       if (data.code === 200) {
         // 入库成功后，获取刚存入的 ID 并标记为 local
         // (也可以简单设置为 success 状态，这里为了展示海报，我们设为 local)
         setStatus("local")
-        setVideoData({ id: data.id, title: movieTitle })
+        setVideoData({ id: data.id, title: candidate.title })
         toast.success("收录成功！", { id: toastId })
       } else {
         setStatus("failed")
@@ -115,17 +131,22 @@ const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
               }
             }}
             className="w-full h-full object-cover"
-            alt={videoData.title}
+            alt={videoData.title || candidate.title}
           />
         </div>
         <div className="flex-1 overflow-hidden">
           <h4 className="text-sm font-bold text-white truncate">
-            {videoData.title}
+            {videoData.title || candidate.title}
           </h4>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">
               本地片库
             </span>
+            {candidate.source === "external" && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded">
+                {candidate.source_key}
+              </span>
+            )}
             {videoData.rating > 0 && (
               <span className="text-[10px] text-yellow-500">
                 ★ {videoData.rating}
@@ -148,7 +169,7 @@ const AiResourceCard: React.FC<{ movieTitle: string }> = ({ movieTitle }) => {
     <div className="flex items-center justify-between p-3 bg-[#1a1a1a] border border-white/5 rounded-xl">
       <div className="flex flex-col">
         <span className="text-sm text-gray-300 font-bold">
-          《{movieTitle}》
+          《{candidate.title}》
         </span>
         <span className="text-[10px] text-gray-500 mt-0.5">
           {status === "checking"
@@ -201,7 +222,8 @@ const Profile = () => {
   // AI 相关 State
   const [aiPrompt, setAiPrompt] = useState("")
   const [aiLoading, setAiLoading] = useState(false)
-  const [aiResults, setAiResults] = useState<string[]>([])
+  const [aiResults, setAiResults] = useState<AiCandidate[]>([])
+  const [aiError, setAiError] = useState("")
 
   // --- 登录/注册逻辑 ---
   const handleAuth = async (e: React.FormEvent) => {
@@ -242,62 +264,15 @@ const Profile = () => {
     if (!aiPrompt.trim()) return
     setAiLoading(true)
     setAiResults([])
+    setAiError("")
     try {
       const results = await askAI(aiPrompt.trim())
       setAiResults(results)
     } catch (error) {
-      setAiResults(["服务繁忙，请重试"])
+      setAiError("服务繁忙，请重试")
     } finally {
       setAiLoading(false)
     }
-  }
-
-  // 🚀 [优化2] 增强字符串提取鲁棒性
-  const extractMovieTitles = (texts: string[]) => {
-    const titles = new Set<string>()
-    const isNoise = (text: string) =>
-      /(无法|联网|实时|根据|推测|以下|信息|数据|建议|推荐|评分|格式|输出)/i.test(
-        text,
-      ) || /^\d+$/.test(text)
-
-    texts.forEach((text) => {
-      const matches = text.match(/《(.*?)》/g)
-      if (matches) {
-        matches.forEach((m) => {
-          const title = m.replace(/[《》]/g, "").trim()
-          if (title && !isNoise(title) && title.length <= 40) {
-            titles.add(title)
-          }
-        })
-      } else {
-        text
-          .split(/[，,、]/)
-          .map((item) => item.trim())
-          .filter(
-            (item) =>
-              item.length > 1 && item.length <= 40 && !isNoise(item),
-          )
-          .forEach((item) => titles.add(item))
-      }
-    })
-
-    // 如果大模型不听话，没加书名号，再兜底提取
-    if (titles.size === 0) {
-      texts.forEach((text) => {
-        const cleanText = text.replace(/["'”‘]/g, "").trim()
-        // 去掉包含“指令”等系统性废话的内容
-        if (
-          cleanText.length > 0 &&
-          cleanText.length < 40 &&
-          !cleanText.includes("指令") &&
-          !cleanText.includes("服务") &&
-          !isNoise(cleanText)
-        ) {
-          titles.add(cleanText)
-        }
-      })
-    }
-    return Array.from(titles)
   }
 
   const goToDetail = (video: any) => {
@@ -410,9 +385,6 @@ const Profile = () => {
     )
   }
 
-  // 获取解析后的电影名称列表
-  const parsedAiTitles = extractMovieTitles(aiResults)
-
   // --- 2. 登录后视图 ---
   return (
     <div className="min-h-screen bg-[#050505] pb-32 text-gray-100 font-sans">
@@ -485,7 +457,7 @@ const Profile = () => {
           </form>
 
           {/* AI 结果区域：展示智能卡片 */}
-          {aiResults.length > 0 && (
+          {(aiError || aiResults.length > 0) && (
             <div className="mt-5 space-y-3 relative z-10">
               <div className="flex items-center gap-2 mb-2">
                 <div className="h-[1px] flex-1 bg-white/5"></div>
@@ -494,18 +466,15 @@ const Profile = () => {
                 </span>
                 <div className="h-[1px] flex-1 bg-white/5"></div>
               </div>
-              {parsedAiTitles.length > 0
-                ? parsedAiTitles.map((title, idx) => (
-                    <AiResourceCard key={`ai-item-${idx}`} movieTitle={title} />
-                  ))
-                : aiResults.map((res, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-white/5 px-3 py-2.5 rounded-lg text-xs text-gray-400 italic"
-                    >
-                      {res}
-                    </div>
-                  ))}
+              {aiError ? (
+                <div className="bg-white/5 px-3 py-2.5 rounded-lg text-xs text-gray-400 italic">
+                  {aiError}
+                </div>
+              ) : (
+                aiResults.map((cand, idx) => (
+                  <AiResourceCard key={`ai-item-${idx}`} candidate={cand} />
+                ))
+              )}
             </div>
           )}
         </div>

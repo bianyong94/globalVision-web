@@ -9,7 +9,7 @@ import {
   VideoSummary, // 确保从 types 导入了 Video 类型
 } from "../types"
 import toast from "react-hot-toast"
-import { VideoSource } from "../types"
+import { AiCandidate, VideoSource } from "../types"
 
 // Base URL configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
@@ -113,7 +113,7 @@ export const fetchCategories = async (): Promise<Category[]> => {
 // 🔥 AI 与 用户系统 (保持不变)
 // =================================================================
 
-export const askAI = async (question: string): Promise<string[]> => {
+export const askAI = async (question: string): Promise<AiCandidate[]> => {
   const response = await api.post("/ai/ask", { question })
   return Array.isArray(response.data.data) ? response.data.data : []
 }
@@ -235,5 +235,13 @@ export const matchLocalResource = async (params: {
 export const ingestVideo = async (title: string): Promise<any> => {
   // 因为 api 实例已经配置了 baseURL: '/api'，所以这里直接请求 /v2/ingest 即可
   const response = await api.post("/v2/ingest", { title })
+  return response.data
+}
+
+export const ingestVideoBySource = async (payload: {
+  source_key: string
+  vod_id: string
+}): Promise<any> => {
+  const response = await api.post("/v2/ingest/by_source", payload)
   return response.data
 }

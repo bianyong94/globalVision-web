@@ -116,6 +116,23 @@ export interface AuthResponse {
   data: User
 }
 
+export type AiCandidateSource = "local" | "tmdb" | "external"
+
+export interface AiCandidate {
+  source: AiCandidateSource
+  title: string
+  year?: string
+  category?: string
+  rating?: number
+  id?: string
+  tmdb_id?: number
+  poster?: string
+  poster_path?: string
+  source_key?: string
+  vod_id?: string
+  remarks?: string
+}
+
 export interface HistoryItem extends VideoSummary {
   episodeIndex: number
   progress: number

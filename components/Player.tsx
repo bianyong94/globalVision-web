@@ -24,13 +24,20 @@ const Player: React.FC<PlayerProps> = ({
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api")
+    .trim()
+    .replace(/\/$/, "")
+  const playUrl =
+    /\.m3u8(\?.*)?$/i.test(url) && !/\/video\/proxy\/playlist\.m3u8/i.test(url)
+      ? `${apiBase}/video/proxy/playlist.m3u8?url=${encodeURIComponent(url)}`
+      : url
 
   useEffect(() => {
     if (!artRef.current) return
 
     const art = new Artplayer({
       container: artRef.current,
-      url: url,
+      url: playUrl,
       poster: poster,
       volume: 0.7,
       isLive: false,
@@ -107,11 +114,11 @@ const Player: React.FC<PlayerProps> = ({
   }, [])
 
   useEffect(() => {
-    if (playerRef.current && url) {
-      playerRef.current.switchUrl(url, poster)
+    if (playerRef.current && playUrl) {
+      playerRef.current.switchUrl(playUrl, poster)
       playerRef.current.play()
     }
-  }, [url, poster])
+  }, [playUrl, poster])
 
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>

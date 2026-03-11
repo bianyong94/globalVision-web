@@ -31,22 +31,16 @@ export default defineConfig(({ mode }) => {
           // 核心：缓存来自 API 的图片
           runtimeCaching: [
             {
-              // 匹配你的后端图片代理接口
-              // 这里的 URL 需要和你 Zeabur 的域名匹配
-              urlPattern: /^https:\/\/maizi93\.zeabur\.app\/api\/image\/proxy/,
-
-              // 缓存策略：Stale-While-Revalidate
-              // 优先从缓存取，同时后台请求新图片更新缓存。
-              // 这样用户秒开图片，下次访问时看到的是最新的。
+              urlPattern: ({ url }) => url.pathname.startsWith("/api/image/proxy"),
               handler: "StaleWhileRevalidate",
               options: {
                 cacheName: "api-images-cache",
                 expiration: {
-                  maxEntries: 100, // 最多缓存 100 张图片
-                  maxAgeSeconds: 30 * 24 * 60 * 60, // 缓存 30 天
+                  maxEntries: 300,
+                  maxAgeSeconds: 30 * 24 * 60 * 60,
                 },
                 cacheableResponse: {
-                  statuses: [0, 200], // 缓存成功的请求
+                  statuses: [0, 200],
                 },
               },
             },
