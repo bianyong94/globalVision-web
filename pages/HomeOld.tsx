@@ -128,9 +128,12 @@ const Home = () => {
                   {/* 背景图 */}
                   <div className="absolute inset-0">
                     <img
-                      src={getProxyUrl(item.poster)}
+                      src={getProxyUrl(item.poster, { w: 1280, q: 72 })}
                       alt={item.title}
                       className="w-full h-full object-cover object-top opacity-100 transition-transform duration-[10s] ease-linear group-hover:scale-105"
+                      loading={idx === 0 ? "eager" : "lazy"}
+                      fetchPriority={idx === 0 ? "high" : "auto"}
+                      decoding="async"
                     />
                     {/* 遮罩层：下部渐变黑 + 顶部渐变黑 */}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/40 to-transparent" />

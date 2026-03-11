@@ -132,6 +132,8 @@ const AiResourceCard: React.FC<{ candidate: AiCandidate }> = ({ candidate }) => 
             }}
             className="w-full h-full object-cover"
             alt={videoData.title || candidate.title}
+            loading="lazy"
+            decoding="async"
           />
         </div>
         <div className="flex-1 overflow-hidden">
@@ -526,6 +528,7 @@ const Profile = () => {
                       }}
                       className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
                       loading="lazy"
+                      decoding="async"
                     />
 
                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-6 pb-1 px-1.5">

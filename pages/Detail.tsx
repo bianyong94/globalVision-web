@@ -36,6 +36,7 @@ interface UnifiedSource {
   health?: "good" | "unknown" | "bad"
   latency_ms?: number | null
   source_ref?: string
+  season_no?: number | null
 }
 
 const Detail = () => {
@@ -103,29 +104,95 @@ const Detail = () => {
     })
   }, [activeSource])
 
+  const chineseToNumber = useCallback((raw: string) => {
+    const s = String(raw || "").trim()
+    if (!s) return null
+    if (/^\d+$/.test(s)) return Number.parseInt(s, 10)
+
+    const map: Record<string, number> = {
+      零: 0,
+      〇: 0,
+      一: 1,
+      二: 2,
+      两: 2,
+      三: 3,
+      四: 4,
+      五: 5,
+      六: 6,
+      七: 7,
+      八: 8,
+      九: 9,
+    }
+
+    if (s === "十") return 10
+    if (s.length === 2 && s[0] === "十" && map[s[1]] != null) return 10 + map[s[1]]
+    if (s.length === 2 && map[s[0]] != null && s[1] === "十") return map[s[0]] * 10
+    if (s.length === 3 && map[s[0]] != null && s[1] === "十" && map[s[2]] != null)
+      return map[s[0]] * 10 + map[s[2]]
+
+    return null
+  }, [])
+
+  const extractSeasonNo = useCallback(
+    (name: string) => {
+      const text = String(name || "")
+
+      let m = text.match(/第\s*([一二两三四五六七八九十〇零\d]{1,3})\s*[季部]/i)
+      if (m) return chineseToNumber(m[1])
+
+      m = text.match(/\bSeason\s*([0-9]{1,2})\b/i)
+      if (m) return Number.parseInt(m[1], 10)
+
+      m = text.match(/\bS0*([0-9]{1,2})\b/i)
+      if (m) return Number.parseInt(m[1], 10)
+
+      return null
+    },
+    [chineseToNumber],
+  )
+
+  const buildLocalSourceOptions = useCallback(
+    (sources: any[]) => {
+      if (!Array.isArray(sources) || sources.length === 0) return []
+      const mapped: UnifiedSource[] = sources.map((source: any, idx: number) => {
+        const name = source.vod_name || source.source_name || `线路 ${idx + 1}`
+        return {
+          id: `local_${idx}`,
+          name,
+          remarks: source.remarks || "",
+          vod_play_url:
+            source.vod_play_url ||
+            source.play_url ||
+            source.url ||
+            "",
+          type: "local",
+          health: source.health,
+          latency_ms: typeof source.latency_ms === "number" ? source.latency_ms : null,
+          source_ref:
+            source.source_key && source.vod_id ? `${source.source_key}::${source.vod_id}` : "",
+          season_no: extractSeasonNo(name),
+        }
+      })
+
+      const withIndex = mapped.map((s, i) => ({ s, i }))
+      withIndex.sort((a, b) => {
+        const sa = a.s.season_no
+        const sb = b.s.season_no
+        if (sa == null && sb == null) return a.i - b.i
+        if (sa == null) return 1
+        if (sb == null) return -1
+        if (sa !== sb) return sa - sb
+        return a.i - b.i
+      })
+      return withIndex.map((x) => x.s)
+    },
+    [extractSeasonNo],
+  )
+
   const localSourceOptions = useMemo<UnifiedSource[]>(() => {
     if (!detail?.sources?.length) return []
-    return detail.sources.map((source, idx) => ({
-      id: `local_${idx}`,
-      name: source.vod_name || source.source_name || `线路 ${idx + 1}`,
-      remarks: source.remarks || "",
-      vod_play_url:
-        source.vod_play_url ||
-        (source as any).play_url ||
-        (source as any).url ||
-        "",
-      type: "local",
-      health: (source as any).health,
-      latency_ms:
-        typeof (source as any).latency_ms === "number"
-          ? (source as any).latency_ms
-          : null,
-      source_ref:
-        source.source_key && (source as any).vod_id
-          ? `${source.source_key}::${(source as any).vod_id}`
-          : "",
-    }))
-  }, [detail?.sources])
+    return buildLocalSourceOptions(detail.sources as any)
+  }, [detail?.sources, buildLocalSourceOptions])
 
   const pickBestSource = useCallback(
     (list: UnifiedSource[], preferredRef?: string, preferredSeason?: string) => {
@@ -183,22 +250,7 @@ const Detail = () => {
 
         // 🎯 默认选中第一个源（第一季或最新季，取决于你入库顺序）
         if (videoData.sources && videoData.sources.length > 0) {
-          const options: UnifiedSource[] = videoData.sources.map(
-            (source: any, idx: number) => ({
-              id: `local_${idx}`,
-              name: source.vod_name || source.source_name || `线路 ${idx + 1}`,
-              remarks: source.remarks || "",
-              vod_play_url: source.vod_play_url,
-              type: "local",
-              health: source.health,
-              latency_ms:
-                typeof source.latency_ms === "number" ? source.latency_ms : null,
-              source_ref:
-                source.source_key && source.vod_id
-                  ? `${source.source_key}::${source.vod_id}`
-                  : "",
-            }),
-          )
+          const options = buildLocalSourceOptions(videoData.sources as any)
           setActiveSource(
             pickBestSource(options, preferredSourceRef, preferredSeasonLabel) ||
               options[0],
