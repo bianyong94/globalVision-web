@@ -32,6 +32,11 @@ const Player: React.FC<PlayerProps> = ({
       ? `${apiBase}/video/proxy/playlist.m3u8?url=${encodeURIComponent(url)}`
       : url
 
+  const callbacksRef = useRef({ onTimeUpdate, onEnded, onError })
+  useEffect(() => {
+    callbacksRef.current = { onTimeUpdate, onEnded, onError }
+  }, [onTimeUpdate, onEnded, onError])
+
   useEffect(() => {
     if (!artRef.current) return
 
@@ -67,17 +72,52 @@ const Player: React.FC<PlayerProps> = ({
           }
           if (Hls.isSupported()) {
             const hls = new Hls({
-              // 增大缓冲区，减少卡顿 (单位：秒)
-              maxBufferLength: 60,
-              maxMaxBufferLength: 120,
-              // 遇到错误时尝试重连
-              manifestLoadingTimeOut: 20000,
+              // 1. 核心性能：开启 Web Worker
+              // 将切片解析扔给后台线程，绝对不阻塞 React 的主线程 UI 渲染
+              enableWorker: true,
+
+              // 2. 贴合 CDN 的缓冲策略：防带宽浪费
+              // 因为 CF 边缘节点响应极快，不需要囤积太多切片。
+              maxBufferLength: 30, // 正常缓冲 30 秒即可满足流畅播放
+              maxMaxBufferLength: 600, // 内存中最多允许驻留的极限值
+
+              // 3. 容错与重试机制 (应对用户端网络抖动)
+              fragLoadingTimeOut: 20000, // 切片下载 20 秒超时
+              fragLoadingMaxRetry: 4, // 切片失败允许重试 4 次
+              manifestLoadingTimeOut: 10000, // m3u8 列表 10 秒超时
               manifestLoadingMaxRetry: 3,
+
+              // 4. 起步策略：首屏秒开
+              startLevel: 0,
             })
+
+            // 5. 补充关键的“错误自动恢复机制”
+            hls.on(Hls.Events.ERROR, function (event, data) {
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    // 遇到网络断开或 CDN 偶发 502，尝试自动恢复加载
+                    console.warn("HLS 网络错误，正在尝试恢复...")
+                    hls.startLoad()
+                    break
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    // 遇到视频数据格式解析异常，尝试恢复媒体
+                    console.warn("HLS 媒体错误，正在尝试恢复...")
+                    hls.recoverMediaError()
+                    break
+                  default:
+                    // 遇到无法恢复的致命错误，销毁重置
+                    hls.destroy()
+                    break
+                }
+              }
+            })
+
             hls.loadSource(url)
             hls.attachMedia(video)
             hlsRef.current = hls
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            // 兼容 Safari 原生播放
             video.src = url
           }
         },
@@ -91,7 +131,10 @@ const Player: React.FC<PlayerProps> = ({
     }
 
     art.on("video:timeupdate", () => {
-      if (onTimeUpdate && art.currentTime > 0) onTimeUpdate(art.currentTime)
+      if (callbacksRef.current.onTimeUpdate && art.currentTime > 0) {
+        callbacksRef.current.onTimeUpdate(art.currentTime)
+      }
+      // if (onTimeUpdate && art.currentTime > 0) onTimeUpdate(art.currentTime)
     })
 
     art.on("video:ended", () => {
