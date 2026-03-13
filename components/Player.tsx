@@ -24,6 +24,7 @@ const Player: React.FC<PlayerProps> = ({
   const artRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<Artplayer | null>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const stallTimerRef = useRef<number | null>(null)
   const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api")
     .trim()
     .replace(/\/$/, "")
@@ -39,6 +40,21 @@ const Player: React.FC<PlayerProps> = ({
 
   useEffect(() => {
     if (!artRef.current) return
+
+    const clearStallTimer = () => {
+      if (stallTimerRef.current) {
+        window.clearTimeout(stallTimerRef.current)
+        stallTimerRef.current = null
+      }
+    }
+
+    const scheduleStallFail = () => {
+      if (stallTimerRef.current) return
+      stallTimerRef.current = window.setTimeout(() => {
+        stallTimerRef.current = null
+        callbacksRef.current.onError?.()
+      }, 12000)
+    }
 
     const art = new Artplayer({
       container: artRef.current,
@@ -108,6 +124,8 @@ const Player: React.FC<PlayerProps> = ({
                   default:
                     // 遇到无法恢复的致命错误，销毁重置
                     hls.destroy()
+                    clearStallTimer()
+                    callbacksRef.current.onError?.()
                     break
                 }
               }
@@ -138,19 +156,32 @@ const Player: React.FC<PlayerProps> = ({
     })
 
     art.on("video:ended", () => {
-      if (onEnded) onEnded()
+      clearStallTimer()
+      callbacksRef.current.onEnded?.()
     })
 
     art.on("error", () => {
-      if (onError) onError()
+      clearStallTimer()
+      callbacksRef.current.onError?.()
     })
     art.on("video:error", () => {
-      if (onError) onError()
+      clearStallTimer()
+      callbacksRef.current.onError?.()
+    })
+    art.on("video:waiting", () => {
+      scheduleStallFail()
+    })
+    art.on("video:stalled", () => {
+      scheduleStallFail()
+    })
+    art.on("video:playing", () => {
+      clearStallTimer()
     })
 
     playerRef.current = art
 
     return () => {
+      clearStallTimer()
       if (hlsRef.current) hlsRef.current.destroy()
       if (art && art.destroy) art.destroy(false)
     }
