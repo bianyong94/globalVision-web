@@ -5,6 +5,7 @@ import { VitePWA } from "vite-plugin-pwa" // 引入PWA插件
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "")
+  const buildStamp = new Date().toISOString()
   return {
     base: "/",
     server: {
@@ -25,6 +26,10 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: "autoUpdate",
         workbox: {
+          // 强制新 SW 尽快接管，减少旧缓存导致的“页面一直请求”
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
           // 缓存所有静态资源 (JS, CSS, Fonts...)
           globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
 
@@ -51,7 +56,7 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: "Global Vision",
           short_name: "GV",
-          description: "A modern video streaming app.",
+          description: `A modern video streaming app. build:${buildStamp}`,
           theme_color: "#050505",
           icons: [
             // 你需要准备一些图标放在 public 文件夹下
