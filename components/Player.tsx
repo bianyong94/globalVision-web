@@ -53,7 +53,7 @@ const Player: React.FC<PlayerProps> = ({
       stallTimerRef.current = window.setTimeout(() => {
         stallTimerRef.current = null
         callbacksRef.current.onError?.()
-      }, 12000)
+      }, 25000)
     }
 
     const art = new Artplayer({
