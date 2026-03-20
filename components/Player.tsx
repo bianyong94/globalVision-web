@@ -88,22 +88,25 @@ const Player: React.FC<PlayerProps> = ({
           }
           if (Hls.isSupported()) {
             const hls = new Hls({
-              // 1. 核心性能：开启 Web Worker
-              // 将切片解析扔给后台线程，绝对不阻塞 React 的主线程 UI 渲染
               enableWorker: true,
+              lowLatencyMode: false,
+              backBufferLength: 30,
+              maxBufferLength: 24,
+              maxMaxBufferLength: 120,
 
-              // 2. 贴合 CDN 的缓冲策略：防带宽浪费
-              // 因为 CF 边缘节点响应极快，不需要囤积太多切片。
-              maxBufferLength: 30, // 正常缓冲 30 秒即可满足流畅播放
-              maxMaxBufferLength: 600, // 内存中最多允许驻留的极限值
+              fragLoadingTimeOut: 25000,
+              fragLoadingMaxRetry: 6,
+              fragLoadingRetryDelay: 800,
+              fragLoadingMaxRetryTimeout: 8000,
 
-              // 3. 容错与重试机制 (应对用户端网络抖动)
-              fragLoadingTimeOut: 20000, // 切片下载 20 秒超时
-              fragLoadingMaxRetry: 4, // 切片失败允许重试 4 次
-              manifestLoadingTimeOut: 10000, // m3u8 列表 10 秒超时
-              manifestLoadingMaxRetry: 3,
+              manifestLoadingTimeOut: 12000,
+              manifestLoadingMaxRetry: 4,
+              manifestLoadingRetryDelay: 800,
 
-              // 4. 起步策略：首屏秒开
+              levelLoadingTimeOut: 12000,
+              levelLoadingMaxRetry: 4,
+              levelLoadingRetryDelay: 800,
+
               startLevel: 0,
             })
 
