@@ -334,31 +334,14 @@ const Detail = () => {
     const nextCount = withinWindow ? prev.count + 1 : 1
     sourceErrorStateRef.current[key] = { count: nextCount, lastAt: now }
 
-    // 只在连续失败 >=2 次时自动切源，避免偶发卡顿就跳线路
-    if (nextCount < 2) {
-      toast("检测到线路波动，正在重试当前线路...", { icon: "⏳" })
+    if (nextCount <= 1) {
+      toast("线路波动，正在重试当前线路...", { icon: "⏳" })
       return
     }
 
-    // 自动切源只在本地线路内进行，外部线路由用户手动切换
-    const stablePool = localSourceOptions.filter((s) => s.id !== activeSource.id)
-    if (stablePool.length === 0) return
-
-    const rank = { good: 0, unknown: 1, bad: 2 }
-    const nextSource = [...stablePool].sort((a, b) => {
-      const healthA = rank[a.health || "unknown"] ?? 1
-      const healthB = rank[b.health || "unknown"] ?? 1
-      if (healthA !== healthB) return healthA - healthB
-      const latencyA = typeof a.latency_ms === "number" ? a.latency_ms : Number.MAX_SAFE_INTEGER
-      const latencyB = typeof b.latency_ms === "number" ? b.latency_ms : Number.MAX_SAFE_INTEGER
-      return latencyA - latencyB
-    })[0]
-
-    if (!nextSource) return
-
-    toast.error("当前线路连续异常，已自动切换到更稳定线路")
-    handleSourceChange(nextSource)
-  }, [activeSource, localSourceOptions])
+    toast.error("当前线路不稳定，请手动切换线路")
+    setShowExternalPanel(true)
+  }, [activeSource])
 
   const loadRecommendations = async (cat: string, currentId: string) => {
     try {
