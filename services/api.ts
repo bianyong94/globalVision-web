@@ -12,7 +12,8 @@ import toast from "react-hot-toast"
 import { AiCandidate, VideoSource } from "../types"
 
 // Base URL configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "https://api.bycurry.cc/api"
 
 const api = axios.create({
   baseURL: API_BASE_URL,
