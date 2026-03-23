@@ -25,7 +25,9 @@ const Player: React.FC<PlayerProps> = ({
   const playerRef = useRef<Artplayer | null>(null)
   const hlsRef = useRef<Hls | null>(null)
   const stallTimerRef = useRef<number | null>(null)
-  const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api")
+  const apiBase = (
+    import.meta.env.VITE_API_BASE_URL || "https://api.bycurry.cc/api"
+  )
     .trim()
     .replace(/\/$/, "")
   const playUrl =
