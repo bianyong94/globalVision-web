@@ -23,6 +23,7 @@ import {
   Layers,
   Sparkles,
   X,
+  Download,
 } from "lucide-react"
 import SEO from "../components/SEO"
 
@@ -104,6 +105,12 @@ const Detail = () => {
       }
     })
   }, [activeSource])
+
+  const apiBase = (
+    import.meta.env.VITE_API_BASE_URL || "https://api.bycurry.cc/api"
+  )
+    .trim()
+    .replace(/\/$/, "")
 
   const chineseToNumber = useCallback((raw: string) => {
     const s = String(raw || "").trim()
@@ -423,6 +430,28 @@ const Detail = () => {
 
   const currentEp = episodes[currentEpIndex]
 
+  const handleDownloadCurrentEpisode = useCallback(async () => {
+    if (!currentEp?.link) {
+      toast.error("当前没有可下载链接")
+      return
+    }
+
+    const raw = String(currentEp.link || "").trim()
+    const downloadUrl =
+      /\.m3u8(\?.*)?$/i.test(raw) && !/\/video\/proxy\/playlist\.m3u8/i.test(raw)
+        ? `${apiBase}/video/proxy/playlist.m3u8?url=${encodeURIComponent(raw)}`
+        : raw
+
+    try {
+      await navigator.clipboard.writeText(downloadUrl)
+      toast.success("已复制下载链接，已为你打开新窗口")
+    } catch {
+      toast.success("已打开下载链接")
+    }
+
+    window.open(downloadUrl, "_blank", "noopener,noreferrer")
+  }, [apiBase, currentEp])
+
   // ✨ 新增：生成 SEO 元数据
   const seoData = useMemo(() => {
     if (!detail) return null
@@ -730,9 +759,19 @@ const Detail = () => {
                 )
               </span>
             </div>
-            <span className="text-[10px] text-gray-500 bg-[#1a1a1a] px-2 py-1 rounded-full">
-              共 {episodes.length} 集
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-500 bg-[#1a1a1a] px-2 py-1 rounded-full">
+                共 {episodes.length} 集
+              </span>
+              <button
+                onClick={handleDownloadCurrentEpisode}
+                disabled={!currentEp}
+                className="text-[10px] px-2 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30 disabled:opacity-40"
+              >
+                <Download size={10} className="inline mr-1" />
+                下载本集
+              </button>
+            </div>
           </div>
 
           {episodes.length > 0 ? (
