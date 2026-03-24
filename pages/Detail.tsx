@@ -449,16 +449,23 @@ const Detail = () => {
       try {
         const task = await createDownloadTask({
           url: downloadUrl,
-          title: detail?.title || "video", 
+          title: detail?.title || "video",
           episode: currentEp?.name || `ep-${currentEpIndex + 1}`,
         })
-        toast.success("已创建下载任务，正在服务器合成文件")
+
+        const directPath = task.directUrl || `/api/v2/download/file/${task.id}`
+        const directLink = `${apiBase}${directPath.replace(/^\/api/, "")}`
+        try {
+          await navigator.clipboard.writeText(directLink)
+        } catch {}
+
+        toast.success("已生成固定下载链接（已复制），文件准备好后该链接可直接下载")
 
         const startedAt = Date.now()
         const poll = async () => {
           const state = await fetchDownloadTask(task.id)
-          if (state?.status === "done" && state?.downloadUrl) {
-            const fileUrl = `${apiBase}${state.downloadUrl.replace(/^\/api/, "")}`
+          if (state?.status === "done") {
+            const fileUrl = `${apiBase}${(state.downloadUrl || directPath).replace(/^\/api/, "")}`
             const a2 = document.createElement("a")
             a2.href = fileUrl
             a2.download = state.fileName || `${detail?.title || "video"}.mp4`
@@ -472,10 +479,10 @@ const Detail = () => {
             toast.error(`下载任务失败：${state?.error || "unknown"}`)
             return
           }
-          if (Date.now() - startedAt < 5 * 60 * 1000) {
+          if (Date.now() - startedAt < 8 * 60 * 1000) {
             setTimeout(poll, 2500)
           } else {
-            toast("任务还在处理中，可稍后再点下载", { icon: "⏳" })
+            toast("仍在处理中，你可直接访问已复制链接重试", { icon: "⏳" })
           }
         }
 
@@ -679,7 +686,7 @@ const Detail = () => {
               <div className="text-center">
                 <p className="text-sm font-bold">暂无播放资源</p>
                 <p className="text-xs opacity-50 mt-1">
-                  请尝试下方的“全网搜索”功能
+                  请尝试下方的"全网搜索"功能
                 </p>
               </div>
             </div>
@@ -822,7 +829,7 @@ const Detail = () => {
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {episodes.map((ep, idx) => {
                 const isActive = idx === currentEpIndex
-                // 清洗集数名称，去掉冗余的“第”“集”
+                // 清洗集数名称，去掉冗余的"第""集"
                 const cleanName = ep.name
                   .replace(/第|集|Season|Episode/gi, "")
                   .trim()

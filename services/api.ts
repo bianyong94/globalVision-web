@@ -251,7 +251,7 @@ export const createDownloadTask = async (payload: {
   url: string
   title?: string
   episode?: string
-}): Promise<{ id: string; status: string; progress: number; fileName: string }> => {
+}): Promise<{ id: string; status: string; progress: number; fileName: string; directUrl?: string }> => {
   const response = await api.post("/v2/download/tasks", payload)
   return response.data.data
 }
