@@ -7,8 +7,6 @@ import {
   saveHistory,
   fetchHistory,
   fetchVideoSources,
-  createDownloadTask,
-  fetchDownloadTask,
 } from "../services/api"
 import { VideoDetail, VideoSummary } from "../types"
 import Player from "../components/Player"
@@ -446,50 +444,14 @@ const Detail = () => {
         : raw
 
     if (isM3u8) {
-      try {
-        const task = await createDownloadTask({
-          url: downloadUrl,
-          title: detail?.title || "video",
-          episode: currentEp?.name || `ep-${currentEpIndex + 1}`,
-        })
-
-        const directPath = task.directUrl || `/api/v2/download/file/${task.id}`
-        const directLink = `${apiBase}${directPath.replace(/^\/api/, "")}`
-        try {
-          await navigator.clipboard.writeText(directLink)
-        } catch {}
-
-        toast.success("已生成固定下载链接（已复制），文件准备好后该链接可直接下载")
-
-        const startedAt = Date.now()
-        const poll = async () => {
-          const state = await fetchDownloadTask(task.id)
-          if (state?.status === "done") {
-            const fileUrl = `${apiBase}${(state.downloadUrl || directPath).replace(/^\/api/, "")}`
-            const a2 = document.createElement("a")
-            a2.href = fileUrl
-            a2.download = state.fileName || `${detail?.title || "video"}.mp4`
-            document.body.appendChild(a2)
-            a2.click()
-            a2.remove()
-            toast.success("下载文件已就绪，正在下载")
-            return
-          }
-          if (state?.status === "failed") {
-            toast.error(`下载任务失败：${state?.error || "unknown"}`)
-            return
-          }
-          if (Date.now() - startedAt < 8 * 60 * 1000) {
-            setTimeout(poll, 2500)
-          } else {
-            toast("仍在处理中，你可直接访问已复制链接重试", { icon: "⏳" })
-          }
-        }
-
-        setTimeout(poll, 2500)
-      } catch (err: any) {
-        toast.error(err?.message || "创建下载任务失败")
-      }
+      const directStreamLink = `${apiBase}/v2/download/direct?url=${encodeURIComponent(downloadUrl)}&title=${encodeURIComponent(detail?.title || "video")}&episode=${encodeURIComponent(currentEp?.name || `ep-${currentEpIndex + 1}`)}`
+      const a2 = document.createElement("a")
+      a2.href = directStreamLink
+      a2.download = `${detail?.title || "video"}-${currentEp?.name || currentEpIndex + 1}.mp4`
+      document.body.appendChild(a2)
+      a2.click()
+      a2.remove()
+      toast.success("已开始下载（服务器正在直出文件流）")
       return
     }
 
