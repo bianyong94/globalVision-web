@@ -246,3 +246,17 @@ export const ingestVideoBySource = async (payload: {
   const response = await api.post("/v2/ingest/by_source", payload)
   return response.data
 }
+
+export const createDownloadTask = async (payload: {
+  url: string
+  title?: string
+  episode?: string
+}): Promise<{ id: string; status: string; progress: number; fileName: string }> => {
+  const response = await api.post("/v2/download/tasks", payload)
+  return response.data.data
+}
+
+export const fetchDownloadTask = async (id: string): Promise<any> => {
+  const response = await api.get(`/v2/download/tasks/${id}`)
+  return response.data.data
+}

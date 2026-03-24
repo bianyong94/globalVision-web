@@ -7,6 +7,8 @@ import {
   saveHistory,
   fetchHistory,
   fetchVideoSources,
+  createDownloadTask,
+  fetchDownloadTask,
 } from "../services/api"
 import { VideoDetail, VideoSummary } from "../types"
 import Player from "../components/Player"
@@ -445,11 +447,42 @@ const Detail = () => {
 
     if (isM3u8) {
       try {
-        await navigator.clipboard.writeText(downloadUrl)
-      } catch {}
-      toast("当前是流媒体线路，浏览器无法直接下成视频文件；已复制下载地址", {
-        icon: "ℹ️",
-      })
+        const task = await createDownloadTask({
+          url: downloadUrl,
+          title: detail?.title || "video", 
+          episode: currentEp?.name || `ep-${currentEpIndex + 1}`,
+        })
+        toast.success("已创建下载任务，正在服务器合成文件")
+
+        const startedAt = Date.now()
+        const poll = async () => {
+          const state = await fetchDownloadTask(task.id)
+          if (state?.status === "done" && state?.downloadUrl) {
+            const fileUrl = `${apiBase}${state.downloadUrl.replace(/^\/api/, "")}`
+            const a2 = document.createElement("a")
+            a2.href = fileUrl
+            a2.download = state.fileName || `${detail?.title || "video"}.mp4`
+            document.body.appendChild(a2)
+            a2.click()
+            a2.remove()
+            toast.success("下载文件已就绪，正在下载")
+            return
+          }
+          if (state?.status === "failed") {
+            toast.error(`下载任务失败：${state?.error || "unknown"}`)
+            return
+          }
+          if (Date.now() - startedAt < 5 * 60 * 1000) {
+            setTimeout(poll, 2500)
+          } else {
+            toast("任务还在处理中，可稍后再点下载", { icon: "⏳" })
+          }
+        }
+
+        setTimeout(poll, 2500)
+      } catch (err: any) {
+        toast.error(err?.message || "创建下载任务失败")
+      }
       return
     }
 
