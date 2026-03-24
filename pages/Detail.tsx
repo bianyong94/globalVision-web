@@ -437,20 +437,31 @@ const Detail = () => {
     }
 
     const raw = String(currentEp.link || "").trim()
+    const isM3u8 = /\.m3u8(\?.*)?$/i.test(raw)
     const downloadUrl =
-      /\.m3u8(\?.*)?$/i.test(raw) && !/\/video\/proxy\/playlist\.m3u8/i.test(raw)
+      isM3u8 && !/\/video\/proxy\/playlist\.m3u8/i.test(raw)
         ? `${apiBase}/video/proxy/playlist.m3u8?url=${encodeURIComponent(raw)}`
         : raw
 
-    try {
-      await navigator.clipboard.writeText(downloadUrl)
-      toast.success("已复制下载链接，已为你打开新窗口")
-    } catch {
-      toast.success("已打开下载链接")
+    if (isM3u8) {
+      try {
+        await navigator.clipboard.writeText(downloadUrl)
+      } catch {}
+      toast("当前是流媒体线路，浏览器无法直接下成视频文件；已复制下载地址", {
+        icon: "ℹ️",
+      })
+      return
     }
 
-    window.open(downloadUrl, "_blank", "noopener,noreferrer")
-  }, [apiBase, currentEp])
+    const a = document.createElement("a")
+    a.href = downloadUrl
+    a.download = `${detail?.title || "video"}-${currentEpIndex + 1}`
+    a.rel = "noopener noreferrer"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    toast.success("已触发下载")
+  }, [apiBase, currentEp, currentEpIndex, detail?.title])
 
   // ✨ 新增：生成 SEO 元数据
   const seoData = useMemo(() => {
