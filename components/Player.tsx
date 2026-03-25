@@ -25,15 +25,7 @@ const Player: React.FC<PlayerProps> = ({
   const playerRef = useRef<Artplayer | null>(null)
   const hlsRef = useRef<Hls | null>(null)
   const stallTimerRef = useRef<number | null>(null)
-  const apiBase = (
-    import.meta.env.VITE_API_BASE_URL || "https://api.bycurry.cc/api"
-  )
-    .trim()
-    .replace(/\/$/, "")
-  const playUrl =
-    /\.m3u8(\?.*)?$/i.test(url) && !/\/video\/proxy\/playlist\.m3u8/i.test(url)
-      ? `${apiBase}/video/proxy/playlist.m3u8?url=${encodeURIComponent(url)}`
-      : url
+  const playUrl = url
 
   const callbacksRef = useRef({ onTimeUpdate, onEnded, onError })
   useEffect(() => {
