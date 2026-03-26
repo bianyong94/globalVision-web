@@ -29,7 +29,11 @@ const Player: React.FC<PlayerProps> = ({
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
   const isAndroid = /Android/i.test(ua)
   const isTablet = /Android/i.test(ua) && !/Mobile/i.test(ua)
-
+  const isStandalone =
+    (typeof window !== "undefined" &&
+      window.matchMedia?.("(display-mode: standalone)")?.matches) ||
+    (typeof navigator !== "undefined" &&
+      Boolean((navigator as any).standalone))
   const callbacksRef = useRef({ onTimeUpdate, onEnded, onError })
   useEffect(() => {
     callbacksRef.current = { onTimeUpdate, onEnded, onError }
@@ -63,9 +67,9 @@ const Player: React.FC<PlayerProps> = ({
       autoplay: true,
 
       // 纯 Web 设置
-      fullscreen: true,
-      // 安卓平板上网页全屏容易卡死，优先走原生全屏
-      fullscreenWeb: !isAndroid,
+      // PWA(添加到桌面)模式下 ArtPlayer 全屏在安卓平板易卡死，禁用内置全屏按钮
+      fullscreen: !isStandalone,
+      fullscreenWeb: !isAndroid && !isStandalone,
       autoSize: !isTablet,
       autoMini: false,
       setting: true,
@@ -99,10 +103,11 @@ const Player: React.FC<PlayerProps> = ({
                 video.webkitShowPlaybackTargetPicker()
                 return
               }
-              window.alert("当前浏览器不支持系统投屏，请使用系统投屏或 Chromecast/Safari AirPlay")
-            } catch (e) {
-              window.alert("投屏启动失败，请确认设备在同一局域网")
-            }
+            } catch (e) {}
+
+            window.alert(
+              "请使用系统投屏（方案A）：\n1) 确保平板和电视同一Wi‑Fi\n2) 安卓下拉控制中心 -> 投屏/Smart View\n3) iPhone控制中心 -> 屏幕镜像(AirPlay)\n4) 若你是‘添加到桌面’模式，建议改在浏览器里打开再全屏",
+            )
           },
         },
       ],
