@@ -26,6 +26,9 @@ const Player: React.FC<PlayerProps> = ({
   const hlsRef = useRef<Hls | null>(null)
   const stallTimerRef = useRef<number | null>(null)
   const playUrl = url
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
+  const isAndroid = /Android/i.test(ua)
+  const isTablet = /Android/i.test(ua) && !/Mobile/i.test(ua)
 
   const callbacksRef = useRef({ onTimeUpdate, onEnded, onError })
   useEffect(() => {
@@ -61,18 +64,48 @@ const Player: React.FC<PlayerProps> = ({
 
       // 纯 Web 设置
       fullscreen: true,
-      fullscreenWeb: true, // Web端建议开启网页全屏
-      autoSize: true,
-      autoMini: true,
+      // 安卓平板上网页全屏容易卡死，优先走原生全屏
+      fullscreenWeb: !isAndroid,
+      autoSize: !isTablet,
+      autoMini: false,
       setting: true,
-      pip: true,
+      pip: !isAndroid,
       playbackRate: true,
 
       // 移动端优化
       playsInline: true,
-      lock: true,
-      fastForward: true,
-      autoOrientation: true,
+      lock: !isTablet,
+      fastForward: !isTablet,
+      autoOrientation: false,
+      moreVideoAttr: {
+        "x5-video-player-type": "h5-page",
+        "x5-video-orientation": "landscape",
+        "x5-playsinline": "true",
+      },
+      controls: [
+        {
+          position: "right",
+          index: 12,
+          html: "投屏",
+          tooltip: "投屏",
+          click: async () => {
+            const video: any = art.template?.$video
+            try {
+              if (video?.remote?.state !== undefined && video?.remote?.prompt) {
+                await video.remote.prompt()
+                return
+              }
+              if (typeof video?.webkitShowPlaybackTargetPicker === "function") {
+                video.webkitShowPlaybackTargetPicker()
+                return
+              }
+              window.alert("当前浏览器不支持系统投屏，请使用系统投屏或 Chromecast/Safari AirPlay")
+            } catch (e) {
+              window.alert("投屏启动失败，请确认设备在同一局域网")
+            }
+          },
+        },
+      ],
 
       customType: {
         m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
