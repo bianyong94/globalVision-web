@@ -78,6 +78,61 @@ const showCastGuide = (isIOS: boolean, isAndroid: boolean, isStandalone: boolean
   )
 }
 
+const isVideoFullscreen = (video?: VideoWithCast) =>
+  Boolean(
+    document.fullscreenElement ||
+      (document as Document & { webkitFullscreenElement?: Element })
+        .webkitFullscreenElement ||
+      video?.webkitDisplayingFullscreen,
+  )
+
+const enterTrueFullscreen = async (art: Artplayer, isIOS: boolean) => {
+  const video = art.template?.$video as VideoWithCast | undefined
+  if (!video) return
+
+  if (isVideoFullscreen(video)) {
+    await document.exitFullscreen?.().catch(() => {})
+    ;(
+      document as Document & { webkitExitFullscreen?: () => void }
+    ).webkitExitFullscreen?.()
+    video.webkitExitFullscreen?.()
+    return
+  }
+
+  if (isIOS) {
+    const enter =
+      video.webkitEnterFullscreen ||
+      (video as VideoWithCast & { webkitEnterFullScreen?: () => void })
+        .webkitEnterFullScreen
+    if (typeof enter === "function") {
+      enter.call(video)
+      return
+    }
+  }
+
+  const player = art.template?.$player as HTMLElement | undefined
+  const candidates = [video, player, art.container as HTMLElement].filter(
+    Boolean,
+  ) as HTMLElement[]
+
+  for (const target of candidates) {
+    const request =
+      target.requestFullscreen?.bind(target) ||
+      (target as HTMLElement & { webkitRequestFullscreen?: () => void })
+        .webkitRequestFullscreen?.bind(target)
+    if (!request) continue
+
+    try {
+      await request()
+      return
+    } catch {
+      // try next target
+    }
+  }
+
+  art.fullscreenWeb = !art.fullscreenWeb
+}
+
 const tryCastPlayback = async (video: VideoWithCast) => {
   configureVideoForCast(video)
 
@@ -131,7 +186,7 @@ const Player: React.FC<PlayerProps> = ({
     if (!artRef.current) return
 
     const { isAndroid, isIOS, isTablet, isStandalone } = deviceRef.current
-    const useNativeFullscreen = !isStandalone && !isAndroid
+    const isMobile = isIOS || isAndroid
 
     const clearStallTimer = () => {
       if (stallTimerRef.current) {
@@ -157,9 +212,9 @@ const Player: React.FC<PlayerProps> = ({
       muted: false,
       autoplay: true,
 
-      // PWA/添加到桌面：使用网页全屏，避免原生全屏在部分安卓设备卡死
-      fullscreen: useNativeFullscreen,
-      fullscreenWeb: true,
+      // 移动端使用系统级全屏；桌面端保留网页全屏作为备选
+      fullscreen: !isMobile,
+      fullscreenWeb: !isMobile,
       autoSize: !isTablet,
       autoMini: false,
       setting: true,
@@ -266,6 +321,53 @@ const Player: React.FC<PlayerProps> = ({
             },
           })
         }
+      }
+
+      if (isMobile) {
+        const fullscreenBtn = art.controls.add({
+          position: "right",
+          index: 20,
+          html: art.icons.fullscreenOn.outerHTML,
+          tooltip: "全屏",
+          click: () => {
+            void enterTrueFullscreen(art, isIOS)
+          },
+        })
+
+        const syncFullscreenIcon = (active: boolean) => {
+          fullscreenBtn.innerHTML = active
+            ? art.icons.fullscreenOff.outerHTML
+            : art.icons.fullscreenOn.outerHTML
+        }
+
+        const castVideo = art.template?.$video as VideoWithCast | undefined
+        if (castVideo && isIOS) {
+          castVideo.addEventListener("webkitbeginfullscreen", () =>
+            syncFullscreenIcon(true),
+          )
+          castVideo.addEventListener("webkitendfullscreen", () =>
+            syncFullscreenIcon(false),
+          )
+        }
+
+        const onFullscreenChange = () => {
+          syncFullscreenIcon(
+            isVideoFullscreen(art.template?.$video as VideoWithCast),
+          )
+        }
+        document.addEventListener("fullscreenchange", onFullscreenChange)
+        document.addEventListener(
+          "webkitfullscreenchange",
+          onFullscreenChange,
+        )
+
+        art.on("destroy", () => {
+          document.removeEventListener("fullscreenchange", onFullscreenChange)
+          document.removeEventListener(
+            "webkitfullscreenchange",
+            onFullscreenChange,
+          )
+        })
       }
 
       if (initialTime && initialTime > 0) {
