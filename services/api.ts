@@ -39,24 +39,6 @@ const DEFAULT_HEADERS = {
   "Content-Type": "application/json",
 }
 
-const SAFE_PATTERNS = [
-  /博彩/i,
-  /赌博/i,
-  /赌盘/i,
-  /赌场/i,
-  /下注/i,
-  /成人/i,
-  /色情/i,
-  /黄播/i,
-  /自拍偷拍/i,
-  /偷拍自拍/i,
-  /porn/i,
-  /sex/i,
-  /xxx/i,
-  /hentai/i,
-  /\bAV\b/i,
-]
-
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -110,28 +92,8 @@ const hexToBytes = (hex: string) => {
   return out
 }
 
-const isSafeText = (value: unknown) => {
-  if (value == null) return true
-  const text = String(value)
-  return !SAFE_PATTERNS.some((pattern) => pattern.test(text))
-}
-
 const sanitizeList = <T extends Record<string, any>>(items: T[]) =>
-  (Array.isArray(items) ? items : []).filter((item) =>
-    isSafeText(
-      [
-        item?.name,
-        item?.title,
-        item?.remarks,
-        item?.label,
-        item?.content,
-        item?.dynamic,
-        item?.highlight,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    ),
-  )
+  (Array.isArray(items) ? items : []).filter(Boolean)
 
 const normalizeImage = (value?: string) => {
   if (!value) return ""
@@ -519,8 +481,7 @@ const mapBanner = (item: any): MovieBannerItem | null => {
   const click = String(item?.click || item?.id || "").trim()
   if (Number(item?.type || 0) === 3) return null
   if (/^https?:\/\//i.test(click)) return null
-  const safe = isSafeText(`${title} ${item?.label || ""} ${item?.dynamic || ""}`)
-  if (!safe || (!title && !cover)) return null
+  if (!title && !cover) return null
 
   return {
     id: String(item?.id || item?.click || title),
@@ -534,17 +495,14 @@ const mapBanner = (item: any): MovieBannerItem | null => {
     year: item?.year,
     label: item?.label,
     content: item?.content,
-    safe,
+    safe: true,
   }
 }
 
 const mapListItem = (item: any): MovieListItem | null => {
   const name = String(item?.name || item?.title || "").trim()
   const cover = normalizeImage(item?.cover || item?.poster || item?.image)
-  const safe = isSafeText(
-    `${name} ${item?.dynamic || ""} ${item?.label || ""} ${item?.type_name || ""}`,
-  )
-  if (!safe || (!name && !cover)) return null
+  if (!name && !cover) return null
 
   return {
     id: String(item?.id || item?.click || name),
@@ -566,15 +524,14 @@ const mapListItem = (item: any): MovieListItem | null => {
           type: Number(member.type || 0),
         }))
       : undefined,
-    safe,
+    safe: true,
     click: String(item?.click || item?.id || ""),
   }
 }
 
 const mapComment = (item: any): MovieCommentItem | null => {
   const content = String(item?.content || "").trim()
-  const safe = isSafeText(content)
-  if (!safe || !content) return null
+  if (!content) return null
   return {
     id: Number(item?.id || 0),
     movie_id: String(item?.movie_id || ""),
@@ -585,9 +542,9 @@ const mapComment = (item: any): MovieCommentItem | null => {
           id: Number(item.user.id || 0),
           nickname: String(item.user.nickname || ""),
           avatar: normalizeImage(item.user.avatar),
-        }
+      }
       : undefined,
-    safe,
+    safe: true,
   }
 }
 
@@ -604,12 +561,7 @@ const mapEpisodes = (source: any): MovieEpisodeItem[] =>
 const mapDetail = (item: any): MovieDetailItem | null => {
   const name = String(item?.name || item?.title || "").trim()
   const cover = normalizeImage(item?.cover || item?.poster)
-  const safe = isSafeText(
-    `${name} ${item?.remarks || ""} ${item?.director || ""} ${item?.actor || ""} ${
-      item?.content || ""
-    }`,
-  )
-  if (!safe || (!name && !cover)) return null
+  if (!name && !cover) return null
 
   const playFrom = sanitizeList(Array.isArray(item?.play_from) ? item.play_from : [])
     .map((source): MoviePlaySourceItem => ({
@@ -634,7 +586,7 @@ const mapDetail = (item: any): MovieDetailItem | null => {
     content: item?.content,
     remarks: item?.remarks,
     play_from: playFrom,
-    safe,
+    safe: true,
   }
 }
 
@@ -826,7 +778,7 @@ export const fetchSearchAutocomplete = async (
     word: item?.word != null ? String(item.word) : undefined,
     dynamic: item?.dynamic,
     highlight: item?.highlight,
-    safe: isSafeText(`${item?.word || item?.name || ""} ${item?.dynamic || ""}`),
+    safe: true,
   }))
 }
 
