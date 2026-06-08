@@ -476,8 +476,12 @@ const request = async <T>(
 }
 
 const mapBanner = (item: any): MovieBannerItem | null => {
-  const title = String(item?.title || item?.name || "").trim()
-  const cover = normalizeImage(item?.image || item?.cover || item?.poster)
+  const title = String(
+    item?.title || item?.name || item?.vod_name || item?.vodName || "",
+  ).trim()
+  const cover = normalizeImage(
+    item?.image || item?.cover || item?.poster || item?.vod_pic || item?.pic,
+  )
   const click = String(item?.click || item?.id || "").trim()
   if (Number(item?.type || 0) === 3) return null
   if (/^https?:\/\//i.test(click)) return null
@@ -500,8 +504,17 @@ const mapBanner = (item: any): MovieBannerItem | null => {
 }
 
 const mapListItem = (item: any): MovieListItem | null => {
-  const name = String(item?.name || item?.title || "").trim()
-  const cover = normalizeImage(item?.cover || item?.poster || item?.image)
+  const name = String(
+    item?.name ||
+      item?.title ||
+      item?.vod_name ||
+      item?.vodName ||
+      item?.post_title ||
+      "",
+  ).trim()
+  const cover = normalizeImage(
+    item?.cover || item?.poster || item?.image || item?.vod_pic || item?.pic,
+  )
   if (!name && !cover) return null
 
   return {
@@ -559,14 +572,23 @@ const mapEpisodes = (source: any): MovieEpisodeItem[] =>
   }))
 
 const mapDetail = (item: any): MovieDetailItem | null => {
-  const name = String(item?.name || item?.title || "").trim()
-  const cover = normalizeImage(item?.cover || item?.poster)
+  const name = String(
+    item?.name ||
+      item?.title ||
+      item?.vod_name ||
+      item?.vodName ||
+      item?.post_title ||
+      "",
+  ).trim()
+  const cover = normalizeImage(
+    item?.cover || item?.poster || item?.pic || item?.vod_pic || item?.image,
+  )
   if (!name && !cover) return null
 
   const playFrom = sanitizeList(Array.isArray(item?.play_from) ? item.play_from : [])
     .map((source): MoviePlaySourceItem => ({
-      code: String(source?.code || ""),
-      name: String(source?.name || ""),
+      code: String(source?.code || source?.from_code || source?.source_code || ""),
+      name: String(source?.name || source?.from_name || source?.source_name || ""),
       list: mapEpisodes(source),
     }))
     .filter((source) => source.code && source.name)
@@ -575,16 +597,21 @@ const mapDetail = (item: any): MovieDetailItem | null => {
     id: String(item?.id || ""),
     name,
     type_id: item?.type_id != null ? Number(item.type_id) : undefined,
-    type_name: item?.type_name,
-    score: item?.score != null ? String(item.score) : undefined,
+    type_name: item?.type_name || item?.vod_class || item?.type || undefined,
+    score:
+      item?.score != null
+        ? String(item.score)
+        : item?.vod_score != null
+          ? String(item.vod_score)
+          : undefined,
     cover,
-    year: item?.year ? String(item.year) : undefined,
-    area: item?.area,
-    director: item?.director,
-    writer: item?.writer,
-    actor: item?.actor,
-    content: item?.content,
-    remarks: item?.remarks,
+    year: item?.year ? String(item.year) : item?.vod_year ? String(item.vod_year) : undefined,
+    area: item?.area || item?.vod_area,
+    director: item?.director || item?.vod_director,
+    writer: item?.writer || item?.vod_writer,
+    actor: item?.actor || item?.vod_actor,
+    content: item?.content || item?.vod_content,
+    remarks: item?.remarks || item?.vod_remarks,
     play_from: playFrom,
     safe: true,
   }

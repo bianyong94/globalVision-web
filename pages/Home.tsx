@@ -210,6 +210,10 @@ const Home = () => {
   const headerRef = useRef<HTMLDivElement>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
 
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [activeTopicId])
+
   const configQuery = useQuery({
     queryKey: ["app-config"],
     queryFn: fetchAppConfig,
@@ -294,10 +298,7 @@ const Home = () => {
   const handleOpen = (
     item: MovieListItem | { id: string; source_ref?: string } | any,
   ) => {
-    const id =
-      item && "source_ref" in item && item.source_ref
-        ? item.source_ref
-        : item?.id
+    const id = item?.id
     if (id) navigate(`/detail/${id}`)
   }
 
@@ -380,21 +381,11 @@ const Home = () => {
     topicFilters,
   ])
 
-  if (homeQuery.isLoading && !homeQuery.data) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#08090f] text-white">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-10 w-10 animate-spin text-lime-400" />
-          <p className="text-sm text-white/40 tracking-wide">
-            正在加载精彩内容...
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const showInitialLoading = homeQuery.isLoading && !homeQuery.data
+  const showHomeError = homeQuery.isError && !homeQuery.data
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(132,204,22,0.05),_transparent_40%),linear-gradient(180deg,#0d1121_0%,#08090f_30%,#08090f_100%)] pb-28 text-white antialiased">
+    <div className="min-h-screen w-full overflow-x-hidden no-scrollbar bg-[radial-gradient(circle_at_top,_rgba(132,204,22,0.05),_transparent_40%),linear-gradient(180deg,#0d1121_0%,#08090f_30%,#08090f_100%)] pb-28 text-white antialiased">
       <SEO
         title="首页"
         description="基于接口文档重构的影视首页，提供推荐、分类和精选内容入口。"
@@ -414,7 +405,7 @@ const Home = () => {
           </div>
 
           <div className="mt-4 flex gap-2 overflow-x-auto pb-3 no-scrollbar scroll-smooth">
-            {tabItems.map((tab) => (
+            {(tabItems.length > 0 ? tabItems : [{ id: 0, name: "推荐" }]).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTopicId(tab.id)}
@@ -448,7 +439,31 @@ const Home = () => {
               : "calc(env(safe-area-inset-top) + 8.5rem)",
         }}
       >
-        {activeTopicId === 0 && carouselItems.length > 0 && (
+        {showInitialLoading && (
+          <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3">
+            <Loader2 className="h-10 w-10 animate-spin text-lime-400" />
+            <p className="text-sm text-white/40 tracking-wide">
+              正在加载精彩内容...
+            </p>
+          </div>
+        )}
+
+        {showHomeError && (
+          <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 text-center">
+            <p className="text-sm text-white/50">
+              首页数据加载失败，请检查网络后重试
+            </p>
+            <button
+              type="button"
+              onClick={() => homeQuery.refetch()}
+              className="rounded-full bg-lime-400 px-5 py-2 text-xs font-bold text-[#08090f]"
+            >
+              重新加载
+            </button>
+          </div>
+        )}
+
+        {!showInitialLoading && !showHomeError && activeTopicId === 0 && carouselItems.length > 0 && (
           <section className="relative w-full group">
             <div
               ref={carouselRef}
@@ -510,6 +525,7 @@ const Home = () => {
           </section>
         )}
 
+        {!showInitialLoading && !showHomeError && (
         <section className="w-full min-w-0">
           {activeTopicId === 0 ? (
             <div className="space-y-8">
@@ -568,11 +584,18 @@ const Home = () => {
             <>
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
                 {topicItems.map((item) => (
-                  <MovieGridCard key={item.id} item={item} onOpen={handleOpen} />
+                  <MovieGridCard
+                    key={item.id}
+                    item={item}
+                    onOpen={handleOpen}
+                  />
                 ))}
               </div>
 
-              <div ref={loadMoreRef} className="py-8 flex justify-center w-full">
+              <div
+                ref={loadMoreRef}
+                className="py-8 flex justify-center w-full"
+              >
                 {isFetchingNextPage && (
                   <div className="flex items-center gap-2 text-lime-400 text-xs">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -590,6 +613,7 @@ const Home = () => {
             </div>
           )}
         </section>
+        )}
       </main>
     </div>
   )

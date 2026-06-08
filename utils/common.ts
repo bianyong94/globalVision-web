@@ -4,13 +4,13 @@ interface ProxyOptions {
   forceProxy?: boolean
 }
 
-export const getProxyUrl = (url?: string, options: ProxyOptions = {}) => {
+export const normalizeMediaUrl = (url?: string) => {
   if (!url) return ""
-
   const normalized = url.startsWith("//") ? `https:${url}` : url
-  const directUrl = normalized.startsWith("http://")
+  return normalized.startsWith("http://")
     ? normalized.replace("http://", "https://")
     : normalized
-
-  return directUrl
 }
+
+export const getProxyUrl = (url?: string, _options: ProxyOptions = {}) =>
+  normalizeMediaUrl(url)
