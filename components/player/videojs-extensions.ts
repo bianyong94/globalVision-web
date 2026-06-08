@@ -119,11 +119,21 @@ const isVideoFullscreen = (video?: VideoWithCast | null) =>
       video?.webkitDisplayingFullscreen,
   )
 
-const enterMobileFullscreen = async (player: Player, isIOS: boolean) => {
+const isPlayerFullscreen = (player: Player) =>
+  Boolean(
+    player.isFullscreen?.() ||
+      document.fullscreenElement ||
+      (document as Document & { webkitFullscreenElement?: Element })
+        .webkitFullscreenElement ||
+      isVideoFullscreen(getVideoEl(player)),
+  )
+
+const toggleFullscreen = async (player: Player, isIOS: boolean) => {
   const video = getVideoEl(player)
   if (!video) return
 
-  if (isVideoFullscreen(video)) {
+  if (isPlayerFullscreen(player)) {
+    await player.exitFullscreen?.().catch(() => {})
     await document.exitFullscreen?.().catch(() => {})
     ;(
       document as Document & { webkitExitFullscreen?: () => void }
@@ -161,9 +171,7 @@ const enterMobileFullscreen = async (player: Player, isIOS: boolean) => {
     }
   }
 
-  if (!player.isFullscreen()) {
-    await player.requestFullscreen?.().catch(() => {})
-  }
+  await player.requestFullscreen?.().catch(() => {})
 }
 
 let extensionsRegistered = false
@@ -200,9 +208,18 @@ export const registerVideoJsExtensions = () => {
     }
   }
 
-  class MobileFullscreenToggle extends FullscreenToggle {
+  class UniversalFullscreenToggle extends FullscreenToggle {
     handleClick() {
-      void enterMobileFullscreen(this.player(), device.isIOS)
+      void toggleFullscreen(this.player(), device.isIOS)
+    }
+
+    constructor(player: Player, options?: videojs.ButtonOptions) {
+      super(player, options)
+      this.controlText("全屏")
+    }
+
+    buildCSSClass() {
+      return `vjs-universal-fullscreen-control ${super.buildCSSClass()}`
     }
   }
 
@@ -218,13 +235,15 @@ export const registerVideoJsExtensions = () => {
   if (!isComponentRegistered("CastButton")) {
     videojs.registerComponent("CastButton", CastButton)
   }
-  if (!isComponentRegistered("MobileFullscreenToggle")) {
-    videojs.registerComponent("MobileFullscreenToggle", MobileFullscreenToggle)
+  if (!isComponentRegistered("UniversalFullscreenToggle")) {
+    videojs.registerComponent(
+      "UniversalFullscreenToggle",
+      UniversalFullscreenToggle,
+    )
   }
 }
 
 export const getControlBarChildren = () => {
-  const { isMobile } = getDeviceInfo()
   return [
     "playToggle",
     "volumePanel",
@@ -234,7 +253,7 @@ export const getControlBarChildren = () => {
     "progressControl",
     "playbackRateMenuButton",
     "CastButton",
-    isMobile ? "MobileFullscreenToggle" : "fullscreenToggle",
+    "UniversalFullscreenToggle",
   ]
 }
 
