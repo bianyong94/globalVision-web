@@ -153,7 +153,11 @@ const Detail = () => {
     setResolvedPlayUrl(candidate.resolvedPlayUrl)
     setFailedSourceCodes([])
     setPlaybackError("")
-  }, [detail?.id, playbackDiscoveryQuery.data, playbackDiscoveryQuery.isLoading])
+  }, [
+    detail?.id,
+    playbackDiscoveryQuery.data,
+    playbackDiscoveryQuery.isLoading,
+  ])
 
   const activeSource = useMemo(
     () =>
@@ -204,7 +208,9 @@ const Detail = () => {
     }
 
     const currentSourceIndex = Math.max(
-      detail.play_from.findIndex((source) => source.code === activeSource?.code),
+      detail.play_from.findIndex(
+        (source) => source.code === activeSource?.code,
+      ),
       0,
     )
     const orderedSources = [
@@ -378,29 +384,31 @@ const Detail = () => {
             <h1 className="text-2xl font-black tracking-tight sm:text-4xl lg:text-5xl break-words w-full">
               {detail.name}
             </h1>
+          </div>
 
-            <section className="overflow-hidden rounded-2xl border border-white/5 bg-black shadow-2xl w-full">
-              <div className="aspect-video w-full bg-[#040508] relative">
-                {resolvedPlayUrl ? (
-                  <Player
-                    url={resolvedPlayUrl}
-                    poster={detail.cover}
-                    onError={() => {
-                      void handlePlayerError()
-                    }}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <LoaderState />
-                  </div>
-                )}
-              </div>
-              {playbackError && (
+          <div className="relative z-10 w-full bg-black">
+            <div className="aspect-video w-full bg-[#040508] relative">
+              {resolvedPlayUrl ? (
+                <Player
+                  url={resolvedPlayUrl}
+                  poster={detail.cover}
+                  onError={() => {
+                    void handlePlayerError()
+                  }}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <LoaderState />
+                </div>
+              )}
+            </div>
+            {playbackError && (
+              <div className="mx-auto max-w-6xl px-4">
                 <div className="border-t border-white/5 bg-red-950/20 px-4 py-2.5 text-xs text-red-300 font-medium tracking-wide break-words w-full box-border">
                   {playbackError}
                 </div>
-              )}
-            </section>
+              </div>
+            )}
           </div>
         </div>
       </section>

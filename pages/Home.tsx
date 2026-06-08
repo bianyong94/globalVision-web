@@ -1,13 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
-import {
-  ChevronRight,
-  Loader2,
-  RefreshCw,
-  Search,
-  Sparkles,
-} from "lucide-react"
+import { Loader2, Search } from "lucide-react"
 import SEO from "../components/SEO"
 import {
   fetchAppConfig,
@@ -15,15 +9,206 @@ import {
   fetchScreenMovies,
 } from "../services/api"
 import { getProxyUrl } from "../utils/common"
-import { MovieListItem } from "../types"
+import { AppScreenFilterGroup, MovieListItem } from "../types"
+
+const PAGE_SIZE = 12
+
+const SORT_OPTIONS = [
+  { label: "最新", value: "by_time" },
+  { label: "最热", value: "by_hits" },
+  { label: "评分", value: "by_score" },
+] as const
+
+type TopicFilters = {
+  sort: string
+  class: string
+  area: string
+  year: string
+}
+
+const DEFAULT_FILTERS: TopicFilters = {
+  sort: "by_time",
+  class: "",
+  area: "",
+  year: "",
+}
+
+const FilterRow = ({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) => (
+  <div className="flex items-center gap-2 min-w-0">
+    <span className="shrink-0 rounded-md bg-lime-400/15 px-2.5 py-1 text-[11px] font-bold text-lime-300 border border-lime-400/20">
+      {label}
+    </span>
+    <div className="flex flex-1 gap-2 overflow-x-auto no-scrollbar scroll-smooth py-0.5">
+      {children}
+    </div>
+  </div>
+)
+
+const FilterChip = ({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`shrink-0 rounded-full px-3 py-1 text-xs transition ${
+      active
+        ? "bg-lime-400 text-[#08090f] font-bold"
+        : "text-white/60 hover:text-white/90"
+    }`}
+  >
+    {children}
+  </button>
+)
+
+const TopicFilterPanel = ({
+  filterGroup,
+  filters,
+  onChange,
+}: {
+  filterGroup: AppScreenFilterGroup
+  filters: TopicFilters
+  onChange: (next: TopicFilters) => void
+}) => {
+  const classOptions = filterGroup.class.slice(1)
+  const areaOptions = filterGroup.area.slice(1)
+  const yearOptions = filterGroup.year.slice(1)
+
+  return (
+    <section className="space-y-2.5 border-t border-white/5 py-3">
+      <FilterRow label="综合">
+        {SORT_OPTIONS.map((option) => (
+          <FilterChip
+            key={option.value}
+            active={filters.sort === option.value}
+            onClick={() => onChange({ ...filters, sort: option.value })}
+          >
+            {option.label}
+          </FilterChip>
+        ))}
+      </FilterRow>
+
+      {classOptions.length > 0 && (
+        <FilterRow label="类型">
+          <FilterChip
+            active={!filters.class}
+            onClick={() => onChange({ ...filters, class: "" })}
+          >
+            全部
+          </FilterChip>
+          {classOptions.map((option) => (
+            <FilterChip
+              key={option}
+              active={filters.class === option}
+              onClick={() => onChange({ ...filters, class: option })}
+            >
+              {option}
+            </FilterChip>
+          ))}
+        </FilterRow>
+      )}
+
+      {areaOptions.length > 0 && (
+        <FilterRow label="地区">
+          <FilterChip
+            active={!filters.area}
+            onClick={() => onChange({ ...filters, area: "" })}
+          >
+            全部
+          </FilterChip>
+          {areaOptions.map((option) => (
+            <FilterChip
+              key={option}
+              active={filters.area === option}
+              onClick={() => onChange({ ...filters, area: option })}
+            >
+              {option}
+            </FilterChip>
+          ))}
+        </FilterRow>
+      )}
+
+      {yearOptions.length > 0 && (
+        <FilterRow label="年份">
+          <FilterChip
+            active={!filters.year}
+            onClick={() => onChange({ ...filters, year: "" })}
+          >
+            全部
+          </FilterChip>
+          {yearOptions.map((option) => (
+            <FilterChip
+              key={option}
+              active={filters.year === option}
+              onClick={() => onChange({ ...filters, year: option })}
+            >
+              {option}
+            </FilterChip>
+          ))}
+        </FilterRow>
+      )}
+    </section>
+  )
+}
+
+const MovieGridCard = ({
+  item,
+  onOpen,
+}: {
+  item: MovieListItem
+  onOpen: (item: MovieListItem) => void
+}) => (
+  <button
+    onClick={() => onOpen(item)}
+    className="group text-left focus:outline-none"
+  >
+    <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
+      <img
+        src={getProxyUrl(item.cover)}
+        alt={item.name}
+        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+        loading="lazy"
+      />
+      {(item.dynamic || item.label) && (
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-4 text-right">
+          <span className="text-[10px] text-lime-300 font-medium line-clamp-1">
+            {item.dynamic || item.label}
+          </span>
+        </div>
+      )}
+      {item.collect_count != null && item.collect_count > 0 && (
+        <span className="absolute top-1.5 right-1.5 rounded bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold text-black">
+          多人收藏
+        </span>
+      )}
+    </div>
+    <h3 className="mt-1.5 line-clamp-1 text-xs sm:text-sm font-semibold text-white/80 group-hover:text-lime-400 transition-colors">
+      {item.name}
+    </h3>
+  </button>
+)
 
 const Home = () => {
   const navigate = useNavigate()
   const [activeTopicId, setActiveTopicId] = useState<number>(0)
-
-  // 轮播图当前聚焦的索引状态
+  const [topicFilters, setTopicFilters] =
+    useState<TopicFilters>(DEFAULT_FILTERS)
   const [currentSlide, setCurrentSlide] = useState(0)
   const carouselRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const [headerHeight, setHeaderHeight] = useState(0)
 
   const configQuery = useQuery({
     queryKey: ["app-config"],
@@ -37,19 +222,9 @@ const Home = () => {
     staleTime: 1000 * 60 * 5,
   })
 
-  const topicQuery = useQuery({
-    queryKey: ["topic-recommend", activeTopicId],
-    queryFn: () =>
-      fetchScreenMovies({
-        type_id: activeTopicId,
-        page: 1,
-        pageSize: 12,
-      }),
-    enabled: activeTopicId > 0,
-    staleTime: 1000 * 60 * 5,
-  })
-
   const topTabs = configQuery.data?.index_top_nav || []
+  const filterGroups = configQuery.data?.movie_screen?.filter || []
+
   const tabItems = useMemo(() => {
     const filteredTabs = topTabs.filter(
       (tab) => tab.id !== 0 && tab.name !== "推荐",
@@ -57,9 +232,64 @@ const Home = () => {
     return [{ id: 0, name: "推荐" }, ...filteredTabs]
   }, [topTabs])
 
+  const activeFilterGroup = useMemo(
+    () => filterGroups.find((group) => group.id === activeTopicId),
+    [filterGroups, activeTopicId],
+  )
+
+  const topicListQuery = useInfiniteQuery({
+    queryKey: [
+      "topic-screen",
+      activeTopicId,
+      topicFilters.sort,
+      topicFilters.class,
+      topicFilters.area,
+      topicFilters.year,
+    ],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const page = Number(pageParam || 1)
+      const result = await fetchScreenMovies({
+        type_id: activeTopicId,
+        sort: topicFilters.sort,
+        class: topicFilters.class || undefined,
+        area: topicFilters.area || undefined,
+        year: topicFilters.year || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      })
+      return {
+        page,
+        list: result.list,
+        hasMore: result.list.length >= PAGE_SIZE,
+      }
+    },
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore ? lastPage.page + 1 : undefined,
+    enabled: activeTopicId > 0,
+    staleTime: 1000 * 60 * 5,
+  })
+
   const banners = homeQuery.data?.banners || []
   const sections = homeQuery.data?.sections || []
-  const topicItems = topicQuery.data?.list || []
+  const topicItems =
+    topicListQuery.data?.pages.flatMap((page) => page.list) || []
+
+  useEffect(() => {
+    setTopicFilters(DEFAULT_FILTERS)
+  }, [activeTopicId])
+
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+
+    const updateHeight = () => setHeaderHeight(el.offsetHeight)
+    updateHeight()
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [activeTopicId, activeFilterGroup, topicFilters, tabItems.length])
 
   const handleOpen = (
     item: MovieListItem | { id: string; source_ref?: string } | any,
@@ -71,13 +301,11 @@ const Home = () => {
     if (id) navigate(`/detail/${id}`)
   }
 
-  // 过滤出除了第一个模块（最新上线·全网热播）之外的其余动态区块
   const filteredSections = useMemo(() => {
     if (sections.length <= 1) return sections
     return sections.slice(1)
   }, [sections])
 
-  // 轮播图数据源
   const carouselItems = useMemo(() => {
     if (sections.length > 0 && sections[0]?.data) {
       return sections[0].data
@@ -85,7 +313,6 @@ const Home = () => {
     return banners
   }, [sections, banners])
 
-  // 自动轮播与滚动监听逻辑
   useEffect(() => {
     if (activeTopicId !== 0 || carouselItems.length <= 1) return
 
@@ -93,7 +320,6 @@ const Home = () => {
       setCurrentSlide((prev) => {
         const nextIndex = prev >= carouselItems.length - 1 ? 0 : prev + 1
 
-        // 自动计算宽度并滚动物理视图
         if (carouselRef.current) {
           const slideElement = carouselRef.current.children[
             nextIndex
@@ -107,21 +333,52 @@ const Home = () => {
         }
         return nextIndex
       })
-    }, 4000) // 4秒自动切换
+    }, 4000)
 
     return () => clearInterval(timer)
   }, [carouselItems, activeTopicId])
 
-  // 用户手动手势左右划动时，同步更新指示器数字
   const handleScroll = () => {
     if (!carouselRef.current || carouselItems.length === 0) return
     const { scrollLeft, clientWidth } = carouselRef.current
-    // 依据当前的滚动比例，计算出滑到了第几个卡片
     const index = Math.round(scrollLeft / clientWidth)
     if (index >= 0 && index < carouselItems.length) {
       setCurrentSlide(index)
     }
   }
+
+  const {
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetching: isTopicFetching,
+  } = topicListQuery
+
+  useEffect(() => {
+    if (activeTopicId === 0) return
+
+    const el = loadMoreRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1, rootMargin: "200px" },
+    )
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [
+    activeTopicId,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    topicItems.length,
+    topicFilters,
+  ])
 
   if (homeQuery.isLoading && !homeQuery.data) {
     return (
@@ -143,10 +400,11 @@ const Home = () => {
         description="基于接口文档重构的影视首页，提供推荐、分类和精选内容入口。"
       />
 
-      {/* 整体强固顶导航栏区域（包含搜索框 + Tab 切换栏） */}
-      <div className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-[#08090f]/90 backdrop-blur-xl shadow-lg shadow-black/20">
+      <div
+        ref={headerRef}
+        className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-[#08090f]/90 backdrop-blur-xl shadow-lg shadow-black/20"
+      >
         <div className="mx-auto max-w-6xl px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
-          {/* 搜索框 */}
           <div
             onClick={() => navigate("/search")}
             className="flex h-11 items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 text-sm text-white/40 transition active:scale-[0.98] hover:border-lime-400/30 hover:bg-white/10 cursor-pointer"
@@ -155,7 +413,6 @@ const Home = () => {
             <span>搜索影片、剧集、演员</span>
           </div>
 
-          {/* Tab 切换栏 */}
           <div className="mt-4 flex gap-2 overflow-x-auto pb-3 no-scrollbar scroll-smooth">
             {tabItems.map((tab) => (
               <button
@@ -171,15 +428,28 @@ const Home = () => {
               </button>
             ))}
           </div>
+
+          {activeTopicId > 0 && activeFilterGroup && (
+            <TopicFilterPanel
+              filterGroup={activeFilterGroup}
+              filters={topicFilters}
+              onChange={setTopicFilters}
+            />
+          )}
         </div>
       </div>
 
-      {/* 主内容区域 */}
-      <main className="mx-auto max-w-6xl px-4 pt-[calc(env(safe-area-inset-top)+8.5rem)] space-y-6 w-full box-border min-w-0">
-        {/* 精美的手滑横向自动轮播图（集成了数字位置指示器栏） */}
+      <main
+        className="mx-auto max-w-6xl px-4 space-y-6 w-full box-border min-w-0"
+        style={{
+          paddingTop:
+            headerHeight > 0
+              ? headerHeight + 12
+              : "calc(env(safe-area-inset-top) + 8.5rem)",
+        }}
+      >
         {activeTopicId === 0 && carouselItems.length > 0 && (
           <section className="relative w-full group">
-            {/* 轮播滚动主轴 */}
             <div
               ref={carouselRef}
               onScroll={handleScroll}
@@ -232,7 +502,6 @@ const Home = () => {
               ))}
             </div>
 
-            {/* 精致的胶囊式数字进度指示器（告诉你总共几张，当前是第几张） */}
             <div className="absolute top-4 right-4 z-20 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold tracking-wider text-white/90 backdrop-blur-md border border-white/10">
               <span className="text-lime-400">{currentSlide + 1}</span>
               <span className="mx-1 text-white/30">/</span>
@@ -241,7 +510,6 @@ const Home = () => {
           </section>
         )}
 
-        {/* 动态区块列表区（已按照指示，去掉了原来的“推荐-刷新”标题整栏栏目） */}
         <section className="w-full min-w-0">
           {activeTopicId === 0 ? (
             <div className="space-y-8">
@@ -287,39 +555,35 @@ const Home = () => {
                 </div>
               ))}
             </div>
-          ) : topicQuery.isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-lime-400" />
-            </div>
-          ) : topicItems.length > 0 ? (
+          ) : isTopicFetching && topicItems.length === 0 ? (
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-              {topicItems.slice(0, 18).map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => handleOpen(item)}
-                  className="group text-left focus:outline-none"
-                >
-                  <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
-                    <img
-                      src={getProxyUrl(item.cover)}
-                      alt={item.name}
-                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                      loading="lazy"
-                    />
-                    {(item.dynamic || item.label) && (
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-4 text-right">
-                        <span className="text-[10px] text-lime-300 font-medium line-clamp-1">
-                          {item.dynamic || item.label}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <h3 className="mt-1.5 line-clamp-1 text-xs sm:text-sm font-semibold text-white/80 group-hover:text-lime-400 transition-colors">
-                    {item.name}
-                  </h3>
-                </button>
+              {[...Array(12)].map((_, index) => (
+                <div
+                  key={index}
+                  className="rounded-xl bg-white/5 aspect-[2/3] animate-pulse"
+                />
               ))}
             </div>
+          ) : topicItems.length > 0 ? (
+            <>
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+                {topicItems.map((item) => (
+                  <MovieGridCard key={item.id} item={item} onOpen={handleOpen} />
+                ))}
+              </div>
+
+              <div ref={loadMoreRef} className="py-8 flex justify-center w-full">
+                {isFetchingNextPage && (
+                  <div className="flex items-center gap-2 text-lime-400 text-xs">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    加载更多...
+                  </div>
+                )}
+                {!hasNextPage && topicItems.length > 0 && (
+                  <p className="text-xs text-white/30">已经到底了</p>
+                )}
+              </div>
+            </>
           ) : (
             <div className="rounded-2xl border border-dashed border-white/10 p-10 text-center text-xs sm:text-sm text-white/40 bg-white/[0.01]">
               当前分类暂时没有可展示的内容。
