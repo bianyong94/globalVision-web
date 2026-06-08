@@ -1,37 +1,49 @@
-import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Search, User } from 'lucide-react';
+import React from "react"
+import { useLocation, useNavigate } from "react-router-dom"
+import { Home, Search, User2 } from "lucide-react"
+
+const NAV_ITEMS = [
+  { icon: Home, label: "首页", path: "/" },
+  { icon: Search, label: "搜索", path: "/search" },
+  { icon: User2, label: "我的", path: "/profile" },
+]
 
 const BottomNav = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  const navItems = [
-    { icon: Home, label: '首页', path: '/' },
-    { icon: Search, label: '发现', path: '/search' },
-    { icon: User, label: '我的', path: '/profile' },
-  ];
+  const navigate = useNavigate()
+  const location = useLocation()
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-white/10 pb-safe pt-2 px-6 h-16 z-50 flex justify-between items-center">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        const isActive = location.pathname === item.path;
-        return (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            className={`flex flex-col items-center justify-center space-y-1 w-full ${
-              isActive ? 'text-primary' : 'text-gray-400'
-            }`}
-          >
-            <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
-            <span className="text-xs font-medium">{item.label}</span>
-          </button>
-        );
-      })}
+    <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/8 bg-[#0b0d14]/92 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-3xl items-center justify-between px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2">
+        {NAV_ITEMS.map((item) => {
+          const active = location.pathname === item.path
+          const Icon = item.icon
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              className="flex flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-3 py-2"
+            >
+              <Icon
+                size={20}
+                className={active ? "text-lime-400" : "text-white/55"}
+                strokeWidth={active ? 2.5 : 2}
+              />
+              <span
+                className={
+                  active
+                    ? "text-[11px] font-semibold text-white"
+                    : "text-[11px] text-white/45"
+                }
+              >
+                {item.label}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
-  );
-};
+  )
+}
 
-export default BottomNav;
+export default BottomNav

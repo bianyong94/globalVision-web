@@ -145,3 +145,150 @@ export interface SourceInfo {
   id: string // 切换用的ID
   remarks?: string
 }
+
+export interface AppTopNav {
+  id: number
+  name: string
+}
+
+export interface AppScreenFilterGroup {
+  id: number
+  name: string
+  class: string[]
+  area: string[]
+  year: string[]
+  sort?: string[]
+}
+
+export interface AppMovieScreen {
+  filter: AppScreenFilterGroup[]
+}
+
+export interface AppConfig {
+  index_top_nav: AppTopNav[]
+  movie_screen: AppMovieScreen
+}
+
+export interface MovieBannerItem {
+  id: string
+  title: string
+  cover: string
+  image?: string
+  backdrop?: string
+  click?: string
+  type?: number
+  dynamic?: string
+  year?: string
+  label?: string
+  content?: string
+  safe?: boolean
+}
+
+export interface MovieListMember {
+  member_id: number
+  name: string
+  type: number
+}
+
+export interface MovieListItem {
+  id: string
+  name: string
+  cover: string
+  year?: string
+  dynamic?: string
+  type_name?: string
+  collect_count?: number
+  label?: string
+  highlight?: string
+  score?: string
+  remarks?: string
+  members?: MovieListMember[]
+  safe?: boolean
+  click?: string
+}
+
+export interface MovieEpisodeItem {
+  episode_id: number
+  episode_name: string
+  play_url: string
+  from_code: string
+  ready_to_play?: boolean
+  parseUrl?: string
+}
+
+export interface MoviePlaySourceItem {
+  code: string
+  name: string
+  list: MovieEpisodeItem[]
+}
+
+export interface MovieCommentItem {
+  id: number
+  movie_id: string
+  content: string
+  likes?: number
+  user?: {
+    id: number
+    nickname: string
+    avatar: string
+  }
+  safe?: boolean
+}
+
+export interface MovieDetailItem {
+  id: string
+  name: string
+  type_id?: number
+  type_name?: string
+  score?: string
+  cover: string
+  year?: string
+  area?: string
+  director?: string
+  writer?: string
+  actor?: string
+  content?: string
+  remarks?: string
+  play_from: MoviePlaySourceItem[]
+  safe?: boolean
+}
+
+export interface SearchRankingItem {
+  name: string
+  word?: string
+  hot?: number
+  safe?: boolean
+}
+
+export interface SearchLatelyWord {
+  name: string
+  word?: string
+  safe?: boolean
+}
+
+export interface SearchAutocompleteItem {
+  name: string
+  word?: string
+  dynamic?: string
+  highlight?: string
+  safe?: boolean
+}
+
+export interface SearchMoviesResult {
+  list: MovieListItem[]
+  total?: number
+  pagecount?: number
+}
+
+export interface HomeSectionItem {
+  title: string
+  items: MovieListItem[]
+  layout?: string
+}
+
+export interface HomeDataV2 {
+  config: AppConfig | null
+  banners: MovieBannerItem[]
+  sections: HomeSectionItem[]
+  topicSections: { id: number; name: string; items: MovieListItem[] }[]
+}

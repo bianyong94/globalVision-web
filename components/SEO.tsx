@@ -9,25 +9,23 @@ interface SeoProps {
   type?: "website" | "video.movie" | "video.tv_show"
 }
 
-const SITE_NAME = "极影聚合 - CineVault Hub"
+const SITE_NAME = "Global Vision"
 const DEFAULT_DESC =
-  "极影聚合 (CineVault Hub) 是您的终极影视资源库，汇聚全网高清电影、电视剧、动漫与综艺。无广告、零延迟，实时更新。"
+  "Global Vision 是基于目标接口重构的影视前端，聚合推荐、搜索、详情、评论与播放线路。"
 const DEFAULT_KEYWORDS = [
-  "极影聚合",
-  "CineVault",
-  "免费电影",
-  "高清在线",
-  "美剧",
-  "韩剧",
-  "动漫下载",
-  "影视资源",
+  "Global Vision",
+  "影视搜索",
+  "在线点播",
+  "电影",
+  "剧集",
+  "评论",
 ]
 
 const SEO: React.FC<SeoProps> = ({
   title,
   description = DEFAULT_DESC,
   keywords = [],
-  image = "/logo.png", // 默认分享图片，建议放一张 logo 在 public 目录下
+  image = "/logo-192.png",
   type = "website",
 }) => {
   // 构建完整的标题： "肖申克的救赎 - 极影聚合"

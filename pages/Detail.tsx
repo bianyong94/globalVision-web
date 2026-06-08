@@ -1,874 +1,619 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"
-import { useParams, useNavigate, useLocation } from "react-router-dom"
-import { getProxyUrl } from "../utils/common"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { useNavigate, useParams } from "react-router-dom"
 import {
-  fetchVideoDetail,
-  fetchVideos,
-  saveHistory,
-  fetchHistory,
-  fetchVideoSources,
-  createDownloadTask,
-  fetchDownloadTask,
-} from "../services/api"
-import { VideoDetail, VideoSummary } from "../types"
-import Player from "../components/Player"
-import { useAuth } from "../context/AuthContext"
-import toast from "react-hot-toast"
-import {
-  ChevronLeft,
+  ArrowLeft,
+  ChevronRight,
+  Clock3,
+  MessageCircle,
   PlayCircle,
-  Info,
-  Loader2,
-  Globe,
-  Check,
-  Search,
-  Layers,
-  Sparkles,
-  X,
-  Download,
+  RefreshCw,
+  ShieldAlert,
+  SkipForward,
+  Star,
+  Tv2,
 } from "lucide-react"
 import SEO from "../components/SEO"
+import Player from "../components/Player"
+import {
+  fetchMovieComments,
+  fetchMovieDetail,
+  fetchMovieEpisodes,
+  fetchScreenMovies,
+  parseMovieEpisodeUrl,
+} from "../services/api"
+import { getProxyUrl } from "../utils/common"
+import { MovieEpisodeItem, MovieListItem } from "../types"
 
-// 定义统一的源结构
-interface UnifiedSource {
-  id: string
-  name: string
-  remarks: string
-  vod_play_url: string
-  type: "local" | "external"
-  health?: "good" | "unknown" | "bad"
-  latency_ms?: number | null
-  source_ref?: string
-  season_no?: number | null
-}
+const looksLikeMediaUrl = (value: string) =>
+  /\.(m3u8|mp4|flv|mkv)(?:$|[?#])/i.test(value) || value.startsWith("blob:")
 
 const Detail = () => {
-  const { id: routeId } = useParams<{ id: string }>()
+  const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const location = useLocation()
-  const { user } = useAuth()
-  const preferredSourceRef = useMemo(() => {
-    const params = new URLSearchParams(location.search)
-    return params.get("source") || ""
-  }, [location.search])
-  const preferredSeasonLabel = useMemo(() => {
-    const params = new URLSearchParams(location.search)
-    return params.get("season") || ""
-  }, [location.search])
 
-  // 状态
-  const [detail, setDetail] = useState<VideoDetail | null>(null)
-  const [isDetailLoading, setIsDetailLoading] = useState(true)
-  const [recommendations, setRecommendations] = useState<VideoSummary[]>([])
-  const [isRecLoading, setIsRecLoading] = useState(true)
+  const [activeSourceCode, setActiveSourceCode] = useState("")
+  const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(0)
+  const [resolvedPlayUrl, setResolvedPlayUrl] = useState("")
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
+  const [playbackError, setPlaybackError] = useState("")
+  const [failedSourceCodes, setFailedSourceCodes] = useState<string[]>([])
+  const manualSourceSelectionRef = useRef(false)
 
-  // 当前激活的播放源（对应某一季）
-  const [activeSource, setActiveSource] = useState<UnifiedSource | null>(null)
+  const detailQuery = useQuery({
+    queryKey: ["movie-detail", id],
+    queryFn: () => fetchMovieDetail(id || ""),
+    enabled: !!id,
+    staleTime: 1000 * 60 * 5,
+  })
 
-  // 外部搜索源
-  const [externalSources, setExternalSources] = useState<UnifiedSource[]>([])
-  const [isSourceSearching, setIsSourceSearching] = useState(false)
-  const [showExternalPanel, setShowExternalPanel] = useState(false) // 改名为外部源面板
-
-  // 播放进度与集数
-  const [currentEpIndex, setCurrentEpIndex] = useState(0)
-  const [startTime, setStartTime] = useState(0)
-  const [isDescExpanded, setIsDescExpanded] = useState(false)
-
-  // Refs
-  const detailRef = useRef<VideoDetail | null>(null)
-  const currentEpIndexRef = useRef(0)
-  const currentTimeRef = useRef(0)
-  const userRef = useRef(user)
-  const activeSourceRef = useRef<UnifiedSource | null>(null)
-  const sourceErrorStateRef = useRef<Record<string, { count: number; lastAt: number }>>({})
-
-  // 🔄 核心修复：进入页面强制滚动到顶部
-  useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [routeId])
+  const detail = detailQuery.data
 
   useEffect(() => {
-    userRef.current = user
-  }, [user])
+    manualSourceSelectionRef.current = false
+  }, [detail?.id])
 
-  useEffect(() => {
-    activeSourceRef.current = activeSource
-  }, [activeSource])
+  const resolveEpisodeUrl = useCallback(
+    async (episode: MovieEpisodeItem | undefined) => {
+      if (!episode?.play_url) return ""
 
-  // 计算当前源的集数列表
-  const episodes = useMemo(() => {
-    if (!activeSource || !activeSource.vod_play_url) return []
-    return activeSource.vod_play_url.split("#").map((segment) => {
-      const parts = segment.split("$")
-      return {
-        name: parts.length > 1 ? parts[0] : "正片",
-        link: parts.length > 1 ? parts[1] : parts[0],
+      const rawUrl = episode.play_url.trim()
+      const preferredUrl = episode.parseUrl?.trim() || ""
+
+      if (preferredUrl && looksLikeMediaUrl(preferredUrl)) {
+        return preferredUrl
       }
-    })
-  }, [activeSource])
 
-  const apiBase = (
-    import.meta.env.VITE_API_BASE_URL || "https://api.bycurry.cc/api"
-  )
-    .trim()
-    .replace(/\/$/, "")
+      if (rawUrl.startsWith("parse_")) {
+        try {
+          const response = await parseMovieEpisodeUrl({
+            episode_id: episode.episode_id,
+            from_code: episode.from_code,
+            play_url: rawUrl,
+            refresh: 1,
+          })
+          const errorCode = Number(response?.errorCode ?? response?.code ?? 0)
+          const message = String(
+            response?.msg || response?.message || response?.error || "",
+          )
+          if (
+            errorCode === 1015 ||
+            message.includes("无需解析") ||
+            message.includes("无需")
+          ) {
+            return preferredUrl || rawUrl
+          }
 
-  const chineseToNumber = useCallback((raw: string) => {
-    const s = String(raw || "").trim()
-    if (!s) return null
-    if (/^\d+$/.test(s)) return Number.parseInt(s, 10)
+          const candidate =
+            response?.data?.play_url ||
+            response?.data?.download_url ||
+            response?.data?.data?.play_url ||
+            response?.data?.url ||
+            response?.play_url ||
+            response?.url
 
-    const map: Record<string, number> = {
-      零: 0,
-      〇: 0,
-      一: 1,
-      二: 2,
-      两: 2,
-      三: 3,
-      四: 4,
-      五: 5,
-      六: 6,
-      七: 7,
-      八: 8,
-      九: 9,
-    }
+          if (candidate) {
+            return String(candidate).trim()
+          }
 
-    if (s === "十") return 10
-    if (s.length === 2 && s[0] === "十" && map[s[1]] != null) return 10 + map[s[1]]
-    if (s.length === 2 && map[s[0]] != null && s[1] === "十") return map[s[0]] * 10
-    if (s.length === 3 && map[s[0]] != null && s[1] === "十" && map[s[2]] != null)
-      return map[s[0]] * 10 + map[s[2]]
-
-    return null
-  }, [])
-
-  const extractSeasonNo = useCallback(
-    (name: string) => {
-      const text = String(name || "")
-
-      let m = text.match(/第\s*([一二两三四五六七八九十〇零\d]{1,3})\s*[季部]/i)
-      if (m) return chineseToNumber(m[1])
-
-      m = text.match(/\bSeason\s*([0-9]{1,2})\b/i)
-      if (m) return Number.parseInt(m[1], 10)
-
-      m = text.match(/\bS0*([0-9]{1,2})\b/i)
-      if (m) return Number.parseInt(m[1], 10)
-
-      return null
-    },
-    [chineseToNumber],
-  )
-
-  const buildLocalSourceOptions = useCallback(
-    (sources: any[]) => {
-      if (!Array.isArray(sources) || sources.length === 0) return []
-      const mapped: UnifiedSource[] = sources.map((source: any, idx: number) => {
-        const name = source.vod_name || source.source_name || `线路 ${idx + 1}`
-        return {
-          id: `local_${idx}`,
-          name,
-          remarks: source.remarks || "",
-          vod_play_url:
-            source.vod_play_url ||
-            source.play_url ||
-            source.url ||
-            "",
-          type: "local",
-          health: source.health,
-          latency_ms: typeof source.latency_ms === "number" ? source.latency_ms : null,
-          source_ref:
-            source.source_key && source.vod_id ? `${source.source_key}::${source.vod_id}` : "",
-          season_no: extractSeasonNo(name),
+          return preferredUrl || rawUrl
+        } catch {
+          return preferredUrl || rawUrl
         }
-      })
-
-      const withIndex = mapped.map((s, i) => ({ s, i }))
-      withIndex.sort((a, b) => {
-        const sa = a.s.season_no
-        const sb = b.s.season_no
-        if (sa == null && sb == null) return a.i - b.i
-        if (sa == null) return 1
-        if (sb == null) return -1
-        if (sa !== sb) return sa - sb
-        return a.i - b.i
-      })
-      return withIndex.map((x) => x.s)
-    },
-    [extractSeasonNo],
-  )
-
-  const localSourceOptions = useMemo<UnifiedSource[]>(() => {
-    if (!detail?.sources?.length) return []
-    return buildLocalSourceOptions(detail.sources as any)
-  }, [detail?.sources, buildLocalSourceOptions])
-
-  const pickBestSource = useCallback(
-    (list: UnifiedSource[], preferredRef?: string, preferredSeason?: string) => {
-    if (!list || list.length === 0) return null
-      if (preferredRef) {
-        const matched = list.find((item) => item.source_ref === preferredRef)
-        if (matched) return matched
       }
-      if (preferredSeason) {
-        const seasonRegex = new RegExp(preferredSeason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-        const seasonMatched = list.find((item) => seasonRegex.test(item.name))
-        if (seasonMatched) return seasonMatched
-      }
-    const rank = { good: 0, unknown: 1, bad: 2 }
-    const sorted = [...list].sort((a, b) => {
-      const healthA = rank[a.health || "unknown"] ?? 1
-      const healthB = rank[b.health || "unknown"] ?? 1
-      if (healthA !== healthB) return healthA - healthB
 
-      const latencyA =
-        typeof a.latency_ms === "number" ? a.latency_ms : Number.MAX_SAFE_INTEGER
-      const latencyB =
-        typeof b.latency_ms === "number" ? b.latency_ms : Number.MAX_SAFE_INTEGER
-      return latencyA - latencyB
-    })
-    return sorted[0]
+      if (looksLikeMediaUrl(rawUrl) || rawUrl.startsWith("http")) {
+        return rawUrl
+      }
+
+      return preferredUrl || rawUrl
     },
     [],
   )
 
-  // 1. 加载数据
-  useEffect(() => {
-    if (!routeId) return
-    // 重置状态
-    setDetail(null)
-    setExternalSources([])
-    setActiveSource(null)
-    setIsDetailLoading(true)
-    setIsRecLoading(true)
-    setRecommendations([])
-    setCurrentEpIndex(0)
-    setStartTime(0)
-    setShowExternalPanel(false)
+  const playbackDiscoveryQuery = useQuery({
+    queryKey: ["movie-playback-discovery", detail?.id],
+    queryFn: async () => {
+      if (!detail?.id || !detail?.play_from?.length) return null
 
-    const loadData = async () => {
-      try {
-        const [videoData, historyList] = await Promise.all([
-          fetchVideoDetail(routeId),
-          user ? fetchHistory(user.username) : Promise.resolve([]),
-        ])
+      for (const [sourceIndex, source] of detail.play_from.entries()) {
+        const episodeList = await fetchMovieEpisodes(
+          detail.id,
+          source.code,
+        ).catch(() => [])
+        if (episodeList.length === 0) continue
 
-        setDetail(videoData)
-        detailRef.current = videoData
-        setIsDetailLoading(false)
-
-        // 🎯 默认选中第一个源（第一季或最新季，取决于你入库顺序）
-        if (videoData.sources && videoData.sources.length > 0) {
-          const options = buildLocalSourceOptions(videoData.sources as any)
-          setActiveSource(
-            pickBestSource(options, preferredSourceRef, preferredSeasonLabel) ||
-              options[0],
-          )
-        }
-
-        // 恢复历史记录
-        if (user && historyList) {
-          const record = historyList.find((h: any) => {
-            if (String(h.id) !== String(videoData.id)) return false
-            if (preferredSourceRef) return String(h.sourceRef || "") === preferredSourceRef
-            if (preferredSeasonLabel)
-              return String(h.seasonLabel || "").includes(preferredSeasonLabel)
-            return true
-          })
-          if (record) {
-            setCurrentEpIndex(record.episodeIndex || 0)
-            setStartTime(record.progress || 0)
+        const limit = Math.min(episodeList.length, 6)
+        for (let episodeIndex = 0; episodeIndex < limit; episodeIndex += 1) {
+          const resolved = await resolveEpisodeUrl(episodeList[episodeIndex])
+          if (resolved) {
+            return {
+              sourceCode: source.code,
+              sourceIndex,
+              episodeIndex,
+              resolvedPlayUrl: resolved,
+            }
           }
         }
-
-        loadRecommendations(videoData.category || "movie", videoData.id)
-        // 悄悄在后台搜一下外部源，以备用户需要
-        searchExternalSources(videoData.title)
-      } catch (e) {
-        console.error(e)
-        toast.error("资源加载失败")
-        setIsDetailLoading(false)
       }
-    }
-    loadData()
-  }, [
-    routeId,
-    user?.username,
-    pickBestSource,
-    preferredSourceRef,
-    preferredSeasonLabel,
-  ])
 
-  const searchExternalSources = async (title: string) => {
-    const cleanTitle = title
-      .replace(/第[0-9一二三四五六七八九十]+[季部]/, "")
-      .trim()
-    setIsSourceSearching(true)
-    try {
-      const list = await fetchVideoSources(cleanTitle)
-      setExternalSources(
-        list.map((item: any) => ({
-          id: item.id,
-          name: item.title,
-          remarks: `${item.source_name} • ${item.remarks}`,
-          vod_play_url: item.vod_play_url,
-          type: "external",
-        })),
-      )
-    } catch {
-      // 失败也不影响主流程
-    } finally {
-      setIsSourceSearching(false)
-    }
-  }
-
-  const handleSourceChange = (newSource: UnifiedSource) => {
-    if (activeSource?.id === newSource.id) return
-    saveProgressToDB()
-    setActiveSource(newSource)
-    setCurrentEpIndex(0) // 切换季/源后，重置到第一集
-    setStartTime(0)
-    setShowExternalPanel(false)
-    toast.success(`已切换至: ${newSource.name}`)
-  }
-
-  const handlePlayerError = useCallback(() => {
-    if (!activeSource) return
-
-    const now = Date.now()
-    const key = activeSource.id
-    const prev = sourceErrorStateRef.current[key] || { count: 0, lastAt: 0 }
-    const withinWindow = now - prev.lastAt < 90_000
-    const nextCount = withinWindow ? prev.count + 1 : 1
-    sourceErrorStateRef.current[key] = { count: nextCount, lastAt: now }
-
-    if (nextCount <= 1) {
-      toast("线路波动，正在重试当前线路...", { icon: "⏳" })
-      return
-    }
-
-    toast.error("当前线路不稳定，请手动切换线路")
-    setShowExternalPanel(true)
-  }, [activeSource])
-
-  const loadRecommendations = async (cat: string, currentId: string) => {
-    try {
-      let res = await fetchVideos({ cat, pg: 1 }).catch(() => ({ list: [] }))
-      setRecommendations(
-        (res.list || [])
-          .filter((v: any) => String(v.id) !== String(currentId))
-          .slice(0, 9),
-      )
-    } finally {
-      setIsRecLoading(false)
-    }
-  }
-
-  const saveProgressToDB = useCallback(() => {
-    if (!userRef.current || !detailRef.current) return
-    if (currentTimeRef.current > 5) {
-      const currentSource = activeSourceRef.current
-      const baseTitle = detailRef.current.title || ""
-      const seasonSuffix =
-        currentSource?.name
-          ?.replace(baseTitle, "")
-          .trim()
-          .match(/第[一二两三四五六七八九十百\d]+[季部]|Season\s*\d+|S\d{1,2}/i)?.[0] ||
-        ""
-      const historyTitle = seasonSuffix
-        ? `${baseTitle} ${seasonSuffix}`.trim()
-        : baseTitle
-
-      saveHistory({
-        username: userRef.current.username,
-        video: {
-          id: detailRef.current.id,
-          title: historyTitle,
-          poster: detailRef.current.poster,
-          type: detailRef.current.category || "video",
-          seasonLabel: seasonSuffix,
-          sourceRef: currentSource?.source_ref || "",
-        },
-        episodeIndex: currentEpIndexRef.current,
-        progress: currentTimeRef.current,
-      }).catch(console.error)
-    }
-  }, [])
-
-  const handleBack = useCallback(
-    (e: React.MouseEvent | React.PointerEvent) => {
-      console.log("handleBack")
-      e.preventDefault()
-      e.stopPropagation()
-      setTimeout(() => {
-        if (window.history.length > 1) {
-          window.history.back()
-        } else {
-          navigate("/", { replace: true })
-        }
-      }, 10)
+      return null
     },
-    [navigate],
-  )
+    enabled: !!detail?.id && !!detail?.play_from?.length,
+    staleTime: 1000 * 60 * 30,
+  })
 
   useEffect(() => {
-    const handleVis = () =>
-      document.visibilityState === "hidden" && saveProgressToDB()
-    document.addEventListener("visibilitychange", handleVis)
-    return () => {
-      saveProgressToDB()
-      document.removeEventListener("visibilitychange", handleVis)
-    }
-  }, [saveProgressToDB])
+    if (!detail?.play_from?.length || playbackDiscoveryQuery.isLoading) return
+    if (manualSourceSelectionRef.current) return
+    const candidate = playbackDiscoveryQuery.data
+    if (!candidate) return
+    setActiveSourceCode(candidate.sourceCode)
+    setActiveEpisodeIndex(candidate.episodeIndex)
+    setResolvedPlayUrl(candidate.resolvedPlayUrl)
+    setFailedSourceCodes([])
+    setPlaybackError("")
+  }, [detail?.id, playbackDiscoveryQuery.data, playbackDiscoveryQuery.isLoading])
 
-  const handleEpisodeChange = (idx: number) => {
-    if (idx === currentEpIndex) return
-    saveProgressToDB()
-    setCurrentEpIndex(idx)
-    currentEpIndexRef.current = idx
-    setStartTime(0)
-  }
-
-  const currentEp = episodes[currentEpIndex]
-
-  const handleDownloadCurrentEpisode = useCallback(async () => {
-    if (!currentEp?.link) {
-      toast.error("当前没有可下载链接")
-      return
-    }
-
-    const raw = String(currentEp.link || "").trim()
-    const isM3u8 = /\.m3u8(\?.*)?$/i.test(raw)
-    const downloadUrl =
-      isM3u8 && !/\/video\/proxy\/playlist\.m3u8/i.test(raw)
-        ? `${apiBase}/video/proxy/playlist.m3u8?url=${encodeURIComponent(raw)}`
-        : raw
-
-    if (isM3u8) {
-      const directStreamLink = `${apiBase}/v2/download/direct?url=${encodeURIComponent(downloadUrl)}&title=${encodeURIComponent(detail?.title || "video")}&episode=${encodeURIComponent(currentEp?.name || `ep-${currentEpIndex + 1}`)}`
-      const a2 = document.createElement("a")
-      a2.href = directStreamLink
-      a2.download = `${detail?.title || "video"}-${currentEp?.name || currentEpIndex + 1}.mp4`
-      document.body.appendChild(a2)
-      a2.click()
-      a2.remove()
-      toast.success("已开始下载（服务器正在直出文件流）")
-      return
-    }
-
-    const a = document.createElement("a")
-    a.href = downloadUrl
-    a.download = `${detail?.title || "video"}-${currentEpIndex + 1}`
-    a.rel = "noopener noreferrer"
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    toast.success("已触发下载")
-  }, [apiBase, currentEp, currentEpIndex, detail?.title])
-
-  // ✨ 新增：生成 SEO 元数据
-  const seoData = useMemo(() => {
-    if (!detail) return null
-
-    // 1. 清洗简介 HTML 标签，并截取前 120 字作为 description
-    const rawDesc = detail.content ? detail.content.replace(/<[^>]+>/g, "") : ""
-    const shortDesc =
-      rawDesc.slice(0, 120) + (rawDesc.length > 120 ? "..." : "")
-
-    // 2. 构建描述
-    const description = `在线观看《${detail.title}》(${detail.year})。${
-      detail.remarks ? `更新至${detail.remarks}。` : ""
-    }剧情简介：${shortDesc}`
-
-    // 3. 构建关键词 (片名 + 演员 + 导演 + 类型)
-    const keywords = [
-      detail.title,
-      detail.year?.toString(),
-      detail.category,
-      detail.director,
-      ...(detail.actors ? detail.actors.split(",") : []), // 假设演员是逗号分隔字符串
-      "高清在线",
-      "免费观看",
-      "极影聚合",
-    ].filter(Boolean) as string[]
-
-    return {
-      title: `${detail.title} ${detail.remarks ? `- ${detail.remarks}` : ""} - 高清在线观看`,
-      description,
-      keywords,
-      image: detail.poster,
-    }
-  }, [detail])
-
-  // ✨ 新增：生成结构化数据 (Schema.org) - 让 Google 显示富文本电影卡片
-  const jsonLd = useMemo(() => {
-    if (!detail) return null
-
-    // 区分电影还是电视剧
-    const isMovie = detail.category === "movie" || detail.type === "movie"
-    const schemaType = isMovie ? "Movie" : "TVSeries"
-
-    return {
-      "@context": "https://schema.org",
-      "@type": schemaType,
-      name: detail.title,
-      image: getProxyUrl(detail.poster),
-      description: detail.content?.replace(/<[^>]+>/g, ""),
-      datePublished: detail.year,
-      director: {
-        "@type": "Person",
-        name: detail.director || "Unknown",
-      },
-      actor:
-        detail.actors?.split(",").map((name) => ({
-          "@type": "Person",
-          name: name.trim(),
-        })) || [],
-      offers: {
-        "@type": "Offer",
-        availability: "https://schema.org/InStock",
-        price: "0",
-        priceCurrency: "CNY",
-      },
-    }
-  }, [detail])
-
-  // 📺 渲染全网搜索面板 (仅用于外部源)
-  const renderExternalPanel = () => (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-in fade-in">
-      <div
-        className="bg-[#1a1a1a] w-full max-w-md rounded-2xl max-h-[70vh] flex flex-col shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
-          <h3 className="font-bold text-white flex items-center gap-2">
-            <Globe size={16} className="text-blue-400" /> 全网云搜结果
-          </h3>
-          <button
-            onClick={() => setShowExternalPanel(false)}
-            className="p-1 text-gray-400 hover:text-white"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="p-2 overflow-y-auto custom-scrollbar">
-          {isSourceSearching ? (
-            <div className="py-8 flex flex-col items-center text-gray-500 gap-2">
-              <Loader2 size={24} className="animate-spin text-blue-500" />
-              <span className="text-xs">正在搜索全网资源...</span>
-            </div>
-          ) : externalSources.length === 0 ? (
-            <div className="py-8 text-center text-gray-500 text-sm">
-              未找到相关外部资源
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {externalSources.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => handleSourceChange(item)}
-                  className={`flex items-center justify-between p-3 rounded-lg border transition-all active:scale-95 text-left ${
-                    activeSource?.id === item.id
-                      ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
-                      : "bg-[#252525] border-white/5 text-gray-300 hover:bg-[#333]"
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <span className="text-xs font-bold block truncate">
-                      {item.name}
-                    </span>
-                    <span className="text-[10px] opacity-50 block mt-1">
-                      {item.remarks}
-                    </span>
-                  </div>
-                  {activeSource?.id === item.id && <Check size={14} />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+  const activeSource = useMemo(
+    () =>
+      detail?.play_from?.find((item) => item.code === activeSourceCode) ||
+      detail?.play_from?.[0],
+    [detail?.play_from, activeSourceCode],
   )
 
-  return (
-    // 💡 修复滚动条问题：去掉 h-screen 和 overflow-hidden，使用 min-h-screen
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-100 font-sans relative pb-10">
-      {/* ✅ 插入 SEO 组件 */}
-      {seoData && (
-        <SEO
-          title={seoData.title}
-          description={seoData.description}
-          keywords={seoData.keywords}
-          image={getProxyUrl(seoData.image)} // 确保使用代理后的图片地址
-          type={detail?.category === "movie" ? "video.movie" : "video.tv_show"}
-        />
-      )}
+  const episodesQuery = useQuery({
+    queryKey: ["movie-episodes", detail?.id, activeSource?.code],
+    queryFn: async (): Promise<MovieEpisodeItem[]> => {
+      if (!detail?.id || !activeSource?.code) return []
+      if (Array.isArray(activeSource.list) && activeSource.list.length > 0) {
+        return activeSource.list
+      }
+      return fetchMovieEpisodes(detail.id, activeSource.code)
+    },
+    enabled: !!detail?.id && !!activeSource?.code,
+    staleTime: 1000 * 60 * 5,
+  })
 
-      {/* ✅ 插入 JSON-LD 结构化数据 (这对 Google 收录极重要) */}
-      {jsonLd && (
-        <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
-      )}
+  const commentsQuery = useQuery({
+    queryKey: ["movie-comments", detail?.id],
+    queryFn: () => fetchMovieComments(detail?.id || ""),
+    enabled: !!detail?.id,
+    staleTime: 1000 * 30,
+  })
 
-      {/* 1. 播放器区域 (Sticky 吸顶) */}
-      <div className="sticky top-0 z-40 w-full bg-black shrink-0 shadow-xl shadow-black/50">
-        <div className="aspect-video w-full relative group">
-          <button
-            onPointerUp={handleBack}
-            className="absolute top-4 left-4 z-50 p-2.5 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-emerald-500 transition-all active:scale-90 border border-white/10"
-          >
-            <ChevronLeft size={20} />
-          </button>
+  const relatedQuery = useQuery({
+    queryKey: ["movie-related", detail?.type_id],
+    queryFn: () =>
+      fetchScreenMovies({
+        type_id: detail?.type_id || 0,
+        page: 1,
+        pageSize: 12,
+      }),
+    enabled: !!detail?.type_id,
+    staleTime: 1000 * 60 * 5,
+  })
 
-          {isDetailLoading ? (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-[#111]">
-              <Loader2 className="animate-spin text-emerald-500" size={32} />
-            </div>
-          ) : currentEp ? (
-            <Player
-              key={currentEp.link}
-              url={currentEp.link}
-              poster={getProxyUrl(detail?.backdrop || detail?.poster, {
-                w: 1280,
-                q: 75,
-              })}
-              initialTime={startTime}
-              onTimeUpdate={(t) => (currentTimeRef.current = t)}
-              onError={handlePlayerError}
-              onEnded={() => {
-                if (currentEpIndex < episodes.length - 1) {
-                  handleEpisodeChange(currentEpIndex + 1)
-                  toast.success("自动播放下一集")
-                }
-              }}
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-3 bg-[#111]">
-              <Info size={32} />
-              <div className="text-center">
-                <p className="text-sm font-bold">暂无播放资源</p>
-                <p className="text-xs opacity-50 mt-1">
-                  请尝试下方的"全网搜索"功能
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+  const episodes = episodesQuery.data || []
+  const activeEpisode = episodes[activeEpisodeIndex]
+
+  const handlePlayerError = useCallback(async () => {
+    if (!detail?.play_from?.length || !detail?.id) {
+      setPlaybackError("当前播放源不可用")
+      return
+    }
+
+    const currentSourceIndex = Math.max(
+      detail.play_from.findIndex((source) => source.code === activeSource?.code),
+      0,
+    )
+    const orderedSources = [
+      ...detail.play_from.slice(currentSourceIndex + 1),
+      ...detail.play_from.slice(0, currentSourceIndex),
+    ].filter((source) => !failedSourceCodes.includes(source.code))
+
+    for (const source of orderedSources) {
+      const sourceEpisodes =
+        source.list && source.list.length > 0
+          ? source.list
+          : await fetchMovieEpisodes(detail.id, source.code).catch(() => [])
+
+      if (sourceEpisodes.length === 0) {
+        continue
+      }
+
+      const candidate = await resolveEpisodeUrl(sourceEpisodes[0])
+      if (!candidate) {
+        setFailedSourceCodes((prev) =>
+          prev.includes(source.code) ? prev : [...prev, source.code],
+        )
+        continue
+      }
+
+      setActiveSourceCode(source.code)
+      setActiveEpisodeIndex(0)
+      setResolvedPlayUrl(candidate)
+      setPlaybackError("")
+      return
+    }
+
+    setPlaybackError("当前线路播放失败，已自动尝试其它线路")
+  }, [
+    activeSource?.code,
+    detail?.id,
+    detail?.play_from,
+    failedSourceCodes,
+    resolveEpisodeUrl,
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      if (!detail || !activeEpisode?.play_url) {
+        setResolvedPlayUrl("")
+        return
+      }
+
+      setResolvedPlayUrl("")
+
+      const resolved = await resolveEpisodeUrl(activeEpisode)
+      if (cancelled) return
+
+      if (resolved) {
+        setResolvedPlayUrl(resolved)
+        return
+      }
+
+      if (!cancelled) {
+        void handlePlayerError()
+      }
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeEpisode?.episode_id,
+    activeEpisode?.from_code,
+    activeEpisode?.play_url,
+    detail,
+    handlePlayerError,
+    resolveEpisodeUrl,
+  ])
+
+  useEffect(() => {
+    if (!detail || !activeEpisode?.play_url) {
+      setResolvedPlayUrl("")
+    }
+  }, [activeEpisode?.play_url, detail])
+
+  const relatedItems =
+    relatedQuery.data?.list?.filter((item) => item.id !== detail?.id) || []
+  const comments = commentsQuery.data?.list || []
+
+  const safeDescription = useMemo(() => {
+    if (!detail?.content) return "暂无简介"
+    return detail.content.replace(/<[^>]+>/g, "")
+  }, [detail?.content])
+
+  // 原代码逻辑未实现 openRelated 方法，但包含在 JSX 中，此处保持原逻辑不做破坏性改动
+  const openRelated = (item: MovieListItem) => {
+    navigate(`/detail/${item.id}`)
+  }
+
+  if (detailQuery.isLoading && !detail) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#08090f] text-white">
+        <RefreshCw className="h-8 w-8 animate-spin text-lime-400" />
       </div>
+    )
+  }
 
-      {/* 2. 核心优化：季/源选择栏 (横向滚动) */}
-      {/* 这一块直接展示在文档流中，不再需要折叠 */}
-      <div className="bg-[#121212] border-b border-white/5">
-        <div className="px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-bold text-gray-400 flex items-center gap-1">
-              <Layers size={12} /> 版本 / 季数
-            </h3>
-          </div>
-
-          <div className="flex flex-wrap justify-between  items-center pb-1">
-            {/* 渲染本地源 (即: 每一季) */}
-            {localSourceOptions.map((source) => {
-              const isActive = activeSource?.id === source.id
-              return (
-                <button
-                  key={source.id}
-                  onClick={() => handleSourceChange(source)}
-                  className={`flex-shrink-0 px-4 py-2 rounded-lg w-[48%] my-2 text-xs font-bold transition-all border ${
-                    isActive
-                      ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20"
-                      : "bg-[#1E1E1E] text-gray-400 border-white/5 hover:bg-[#252525]"
-                  }`}
-                >
-                  {/* 优先显示 vod_name (例如: 怪奇物语 第二季) */}
-                  {source.name}
-                  {source.remarks && (
-                    <span className="ml-1 opacity-60 text-[10px] font-normal">
-                      ({source.remarks})
-                    </span>
-                  )}
-                  {typeof source.latency_ms === "number" && (
-                    <span className="ml-1 opacity-70 text-[10px] font-normal">
-                      {source.latency_ms}ms
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-
-            {/* 如果当前选中的是外部源，也显示在这里 */}
-            {activeSource?.type === "external" && (
-              <button className="flex-shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white border border-blue-500">
-                <Globe size={10} className="inline mr-1" />
-                {activeSource.name}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="flex justify-center">
-        {/* 外部源搜素入口 */}
+  if (detailQuery.isError || !detail) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#08090f] px-6 text-white">
+        <ShieldAlert className="h-12 w-12 text-red-400" />
+        <p className="text-center text-sm text-white/50 max-w-xs leading-relaxed">
+          影视详情加载失败，该资源可能不存在或服务繁忙。
+        </p>
         <button
-          onClick={() => setShowExternalPanel(true)}
-          className="text-[12px] mt-5 text-blue-400 flex items-center gap-1 px-2 py-1 rounded-full bg-blue-500/10 active:bg-blue-500/20"
+          onClick={() => navigate(-1)}
+          className="rounded-full bg-lime-400 px-5 py-2 text-xs font-bold text-black shadow-lg"
         >
-          <Search size={12} />
-          资源加载慢？试试切换线路
+          返回上一页
         </button>
       </div>
-      {/* 3. 视频信息区域 */}
-      <div className="p-4 space-y-6">
-        {/* 标题与简介 */}
-        <div>
-          <h1 className="text-xl font-bold text-white mb-2 leading-snug">
-            {detail?.title}
-          </h1>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {detail?.year && (
-              <span className="text-[10px] bg-white/10 text-gray-300 px-2 py-0.5 rounded backdrop-blur-md">
-                {detail.year}
-              </span>
-            )}
-            {detail?.category && (
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">
-                {detail.category}
-              </span>
-            )}
-            {activeSource?.type === "local" && (
-              <span className="text-[10px] bg-gray-800 text-gray-400 px-2 py-0.5 rounded flex items-center gap-1">
-                <Sparkles size={10} /> 本地极速
-              </span>
-            )}
-          </div>
+    )
+  }
 
-          <div
-            onClick={() => setIsDescExpanded(!isDescExpanded)}
-            className="active:opacity-70 group cursor-pointer"
-          >
-            <p
-              className={`text-xs text-gray-400 leading-relaxed transition-all ${!isDescExpanded ? "line-clamp-2" : ""}`}
+  return (
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(132,204,22,0.06),_transparent_40%),linear-gradient(180deg,#0d1121_0%,#08090f_30%,#08090f_100%)] text-white antialiased">
+      <SEO
+        title={detail.name}
+        description={safeDescription.slice(0, 150)}
+        image={detail.cover}
+      />
+
+      <section className="shrink-0 border-b border-white/5 bg-[#08090f]/95 backdrop-blur-xl">
+        <div className="relative w-full overflow-hidden">
+          <img
+            src={getProxyUrl(detail.cover)}
+            alt={detail.name}
+            className="absolute inset-0 h-full w-full object-cover blur-3xl scale-125 opacity-20 pointer-events-none"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#08090f]/10 via-[#08090f]/80 to-[#08090f]" />
+
+          <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-4 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-4 w-full box-border">
+            <button
+              onClick={() => navigate(-1)}
+              className="inline-flex h-9 w-fit items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 text-xs font-medium text-white/80 backdrop-blur-md transition active:scale-95"
             >
-              {detail?.content
-                ? detail.content.replace(/<[^>]+>/g, "")
-                : "暂无简介"}
-            </p>
-            {!isDescExpanded && (
-              <div className="flex justify-center -mt-2 group-hover:translate-y-1 transition-transform">
-                <span className="text-[10px] text-gray-600">▼</span>
-              </div>
-            )}
-          </div>
-        </div>
+              <ArrowLeft size={14} />
+              返回
+            </button>
 
-        {/* 4. 选集区域 (Grid) */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <PlayCircle size={16} className="text-emerald-500" />
-              <span className="text-sm font-bold text-white">
-                选集 (
-                {activeSource?.name?.replace(detail?.title || "", "").trim() ||
-                  "正片"}
-                )
+            <div className="flex flex-wrap items-center gap-1.5 w-full">
+              <span className="rounded bg-lime-400 px-2 py-0.5 text-[10px] font-bold text-black uppercase tracking-wider shrink-0">
+                {detail.type_name || "影音"}
               </span>
+              {detail.year && (
+                <span className="rounded bg-white/5 border border-white/5 px-2 py-0.5 text-[11px] text-white/60 shrink-0">
+                  {detail.year}
+                </span>
+              )}
+              {detail.score && (
+                <span className="inline-flex items-center gap-1 rounded bg-white/5 border border-white/5 px-2 py-0.5 text-[11px] font-semibold text-lime-300 shrink-0">
+                  <Star size={11} className="fill-lime-300 text-lime-300" />
+                  {detail.score}
+                </span>
+              )}
+              {detail.area && (
+                <span className="rounded bg-white/5 border border-white/5 px-2 py-0.5 text-[11px] text-white/60 shrink-0">
+                  {detail.area}
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 bg-[#1a1a1a] px-2 py-1 rounded-full">
-                共 {episodes.length} 集
-              </span>
-              <button
-                onClick={handleDownloadCurrentEpisode}
-                disabled={!currentEp}
-                className="text-[10px] px-2 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30 disabled:opacity-40"
-              >
-                <Download size={10} className="inline mr-1" />
-                下载本集
-              </button>
-            </div>
-          </div>
 
-          {episodes.length > 0 ? (
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-              {episodes.map((ep, idx) => {
-                const isActive = idx === currentEpIndex
-                // 清洗集数名称，去掉冗余的"第""集"
-                const cleanName = ep.name
-                  .replace(/第|集|Season|Episode/gi, "")
-                  .trim()
+            <h1 className="text-2xl font-black tracking-tight sm:text-4xl lg:text-5xl break-words w-full">
+              {detail.name}
+            </h1>
 
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => handleEpisodeChange(idx)}
-                    className={`
-                      h-10 rounded-lg flex items-center justify-center text-xs font-bold truncate transition-all active:scale-95
-                      ${
-                        isActive
-                          ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/30"
-                          : "bg-[#1A1A1A] text-gray-400 border border-white/5 hover:bg-[#252525] hover:text-white"
-                      }
-                    `}
-                  >
-                    {cleanName.length > 4 ? (
-                      <span className="text-[10px]">{cleanName}</span>
-                    ) : (
-                      cleanName
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-8 bg-[#151515] rounded-xl border border-dashed border-white/5">
-              <p className="text-xs text-gray-500">
-                该源暂无集数信息，请尝试切换其他版本
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* 5. 猜你喜欢 */}
-        {!isRecLoading && recommendations.length > 0 && (
-          <div className="pt-6 mt-6 border-t border-white/5">
-            <h3 className="text-sm font-bold mb-4 text-gray-200">猜你喜欢</h3>
-            <div className="grid grid-cols-3 gap-3">
-              {recommendations.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    navigate(`/detail/${item.id}`)
-                    window.scrollTo(0, 0)
-                  }}
-                  className="group active:scale-95 transition-transform duration-200 cursor-pointer"
-                >
-                  <div className="aspect-[2/3] bg-[#1a1a1a] rounded-lg overflow-hidden relative">
-                    <img
-                      src={getProxyUrl(item.poster, { w: 280, q: 70 })}
-                      alt={item.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <div className="absolute top-1 right-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold text-white">
-                      {item.year}
-                    </div>
+            <section className="overflow-hidden rounded-2xl border border-white/5 bg-black shadow-2xl w-full">
+              <div className="aspect-video w-full bg-[#040508] relative">
+                {resolvedPlayUrl ? (
+                  <Player
+                    url={resolvedPlayUrl}
+                    poster={detail.cover}
+                    onError={() => {
+                      void handlePlayerError()
+                    }}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <LoaderState />
                   </div>
-                  <h4 className="text-xs text-gray-300 mt-2 line-clamp-1 group-hover:text-emerald-400 transition-colors">
-                    {item.title}
-                  </h4>
+                )}
+              </div>
+              {playbackError && (
+                <div className="border-t border-white/5 bg-red-950/20 px-4 py-2.5 text-xs text-red-300 font-medium tracking-wide break-words w-full box-border">
+                  {playbackError}
                 </div>
+              )}
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto mt-6 max-w-6xl px-4 space-y-6 w-full box-border min-w-0 pb-32">
+          <section className="grid gap-3 md:grid-cols-[1fr_auto] w-full min-w-0">
+            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 backdrop-blur-md flex flex-col justify-between min-w-0 w-full box-border">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-bold text-white/40 uppercase">
+                <PlayCircle size={13} className="text-lime-400" />
+                <span>剧情简介</span>
+              </div>
+              <p className="text-xs leading-relaxed text-white/60 break-words">
+                {isDescriptionExpanded
+                  ? safeDescription
+                  : `${safeDescription.slice(0, 150)}${safeDescription.length > 150 ? "..." : ""}`}
+              </p>
+              {safeDescription.length > 150 && (
+                <button
+                  onClick={() => setIsDescriptionExpanded((prev) => !prev)}
+                  className="mt-2 text-[11px] font-bold text-lime-400 text-left hover:underline"
+                >
+                  {isDescriptionExpanded ? "收起简介" : "查看全部简介"}
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-1 gap-2 self-start rounded-2xl border border-white/5 bg-white/[0.02] p-4 text-xs text-white/60 backdrop-blur-md w-full md:w-48 box-border min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Clock3 size={13} className="text-lime-400 shrink-0" />
+                <span className="font-semibold text-white/80 truncate">
+                  {activeEpisode ? activeEpisode.episode_name : "未选集"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <SkipForward size={13} className="text-lime-400 shrink-0" />
+                <span className="font-semibold text-white/80 truncate">
+                  {activeSource?.name || "未知线路"}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 backdrop-blur-md w-full min-w-0 box-border">
+            <div className="mb-2.5 flex items-center gap-2 text-xs font-bold tracking-wide text-white/40 uppercase">
+              <Tv2 size={13} className="text-lime-400" />
+              <span>切换线路</span>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar w-full">
+              {detail.play_from.map((source) => (
+                <button
+                  key={source.code}
+                  onClick={() => {
+                    manualSourceSelectionRef.current = true
+                    setActiveSourceCode(source.code)
+                    setActiveEpisodeIndex(0)
+                    setFailedSourceCodes([])
+                    setResolvedPlayUrl("")
+                    setPlaybackError("")
+                  }}
+                  className={`shrink-0 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+                    activeSourceCode === source.code
+                      ? "bg-lime-400 text-black shadow-md"
+                      : "bg-white/5 text-white/70 hover:bg-white/10"
+                  }`}
+                >
+                  {source.name}
+                </button>
               ))}
             </div>
-          </div>
-        )}
-      </div>
+          </section>
 
-      {/* 弹出的全网搜索面板 */}
-      {showExternalPanel && renderExternalPanel()}
+          <section className="rounded-2xl border border-white/5 bg-white/[0.01] p-4 w-full box-border min-w-0">
+            <div className="mb-3 flex items-center justify-between border-b border-white/5 pb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-white/40 uppercase">
+                <Tv2 size={13} className="text-lime-400" />
+                <span>剧集列表</span>
+              </div>
+            </div>
+
+            {episodes.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 w-full">
+                {episodes.map((episode, index) => (
+                  <button
+                    key={`${episode.episode_id}-${episode.episode_name}`}
+                    onClick={() => {
+                      manualSourceSelectionRef.current = true
+                      setActiveEpisodeIndex(index)
+                      setResolvedPlayUrl("")
+                      setPlaybackError("")
+                    }}
+                    className={`rounded-lg py-2.5 text-xs font-medium transition active:scale-95 px-1 truncate ${
+                      activeEpisodeIndex === index
+                        ? "bg-lime-400 text-black font-bold shadow-md"
+                        : "bg-white/5 text-white/70 border border-white/5 hover:bg-white/10"
+                    }`}
+                  >
+                    {episode.episode_name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-xs text-white/30">
+                该线路频道尚未同步更新集数
+              </div>
+            )}
+          </section>
+
+          <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] w-full min-w-0">
+            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-4 h-fit w-full box-border min-w-0">
+              <div className="mb-4 flex items-center gap-1.5 text-xs font-bold text-white/40 uppercase">
+                <MessageCircle size={13} className="text-lime-400" />
+                <span>影迷热评</span>
+              </div>
+
+              {commentsQuery.isLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <RefreshCw className="h-5 w-5 animate-spin text-lime-400" />
+                </div>
+              ) : comments.length > 0 ? (
+                <div className="space-y-3 w-full">
+                  {comments.map((comment) => (
+                    <div
+                      key={comment.id}
+                      className="rounded-xl border border-white/5 bg-black/20 p-4 space-y-2.5 w-full box-border min-w-0"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={getProxyUrl(comment.user?.avatar)}
+                          alt={comment.user?.nickname || "用户"}
+                          className="h-8 w-8 rounded-full object-cover border border-white/5 bg-[#0a0e18] shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-semibold text-white/80">
+                            {comment.user?.nickname || "匿名的影迷"}
+                          </div>
+                          <div className="text-[10px] text-white/30 mt-0.5 truncate">
+                            推荐指数：{comment.likes || 0} 赞同
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs leading-relaxed text-white/70 break-words">
+                        {comment.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-xs text-white/30">
+                  暂无影评，快来抢占沙发
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-4 w-full box-border min-w-0">
+              <div className="mb-4 flex items-center justify-between border-b border-white/5 pb-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-white/40 uppercase">
+                  <ChevronRight size={13} className="text-lime-400" />
+                  <span>相关推荐</span>
+                </div>
+                <button
+                  onClick={() => relatedQuery.refetch()}
+                  className="text-[10px] uppercase font-bold text-white/30 tracking-wider hover:text-white/60 transition shrink-0"
+                >
+                  换一换
+                </button>
+              </div>
+
+              {relatedQuery.isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-5 w-5 animate-spin text-lime-400" />
+                </div>
+              ) : relatedItems.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 w-full">
+                  {relatedItems.slice(0, 6).map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => openRelated(item)}
+                      className="group text-left focus:outline-none w-full min-w-0"
+                    >
+                      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-sm w-full">
+                        <img
+                          src={getProxyUrl(item.cover)}
+                          alt={item.name}
+                          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                          loading="lazy"
+                        />
+                      </div>
+                      <h4 className="mt-1.5 truncate text-xs font-semibold text-white/80 group-hover:text-lime-400 transition-colors w-full">
+                        {item.name}
+                      </h4>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-xs text-white/30">
+                  暂无同类型相关推荐
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </main>
     </div>
   )
 }
+
+const LoaderState = () => (
+  <div className="flex flex-col items-center gap-2">
+    <RefreshCw className="h-6 w-6 animate-spin text-lime-400" />
+    <p className="text-xs text-white/40 tracking-wide">正在解析加密播放源...</p>
+  </div>
+)
 
 export default Detail

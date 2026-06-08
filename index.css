@@ -4,8 +4,11 @@
 @tailwind utilities;
 
 :root {
-  /* 确保底色与你的 App 背景色 #050505 一致 */
-  background-color: #050505;
+  background:
+    radial-gradient(circle at top, rgba(132, 204, 22, 0.14), transparent 32%),
+    linear-gradient(180deg, #0c1020 0%, #08090f 42%, #08090f 100%);
+  background-color: #08090f;
+  color: #ffffff;
 }
 
 html,
@@ -19,10 +22,13 @@ body {
   overscroll-behavior-y: none;
 
   /* 核心代码 2：设置背景色为黑色，这样即使有微小的回弹，露出的也是黑色，看不出边界 */
-  background-color: #050505;
+  background-color: #08090f;
 
   /* 优化滚动体验 */
   -webkit-overflow-scrolling: touch;
+  font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei",
+    system-ui, sans-serif;
+  color: #ffffff;
 }
 /* 当播放器处于网页全屏时的全局修正 */
 body.artplayer-web-fullscreen {
@@ -40,7 +46,10 @@ body.artplayer-web-fullscreen {
 #root {
   /* 确保根容器填满屏幕 */
   min-height: 100%;
-  background-color: #050505;
+  background:
+    radial-gradient(circle at top, rgba(132, 204, 22, 0.14), transparent 32%),
+    linear-gradient(180deg, #0c1020 0%, #08090f 42%, #08090f 100%);
+  background-color: #08090f;
 }
 
 /* 🔥 解决移动端点两次才能生效的问题 */
@@ -50,4 +59,9 @@ body.artplayer-web-fullscreen {
     transform: none !important;
     opacity: 1 !important;
   }
+}
+
+::selection {
+  background: rgba(132, 204, 22, 0.28);
+  color: #ffffff;
 }

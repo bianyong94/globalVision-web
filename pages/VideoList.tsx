@@ -11,6 +11,7 @@ interface VideoListProps {
   year: string
   sort: string
   isActive: boolean
+  onStateChange?: (meta: { count: number; isFetching: boolean }) => void
 }
 
 const VideoList: React.FC<VideoListProps> = ({
@@ -20,6 +21,7 @@ const VideoList: React.FC<VideoListProps> = ({
   year,
   sort,
   isActive,
+  onStateChange,
 }) => {
   // 1. 数据请求 (参数通过 props 传入)
   const {
@@ -58,12 +60,17 @@ const VideoList: React.FC<VideoListProps> = ({
       lastPage.hasMore ? lastPage.page + 1 : undefined,
     // 只有当这个 Tab 处于激活状态，或者已经加载过数据时，才允许后台更新
     // 这里的 enabled 可以根据需求调整，设为 true 表示一直在后台保持更新
-    enabled: true,
+    enabled: isActive,
     staleTime: 1000 * 60 * 5, // 5分钟缓存
   })
 
   const videos = data?.pages.flatMap((page) => page.list) || []
   const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isActive || !onStateChange) return
+    onStateChange({ count: videos.length, isFetching })
+  }, [isActive, onStateChange, videos.length, isFetching])
 
   // 2. 滚动加载监听 (仅在激活状态下生效)
   useEffect(() => {
@@ -82,6 +89,14 @@ const VideoList: React.FC<VideoListProps> = ({
     observer.observe(el)
     return () => observer.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, isActive])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (isActive) refetch()
+    }
+    window.addEventListener("gv-search-refresh", handleRefresh)
+    return () => window.removeEventListener("gv-search-refresh", handleRefresh)
+  }, [isActive, refetch])
 
   // 3. 这里的渲染逻辑与之前相同，但去掉了外层的 Grid 容器，只负责内容
   return (
@@ -102,8 +117,10 @@ const VideoList: React.FC<VideoListProps> = ({
       {videos.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {videos.map((v) => (
-            // 修复 Key：不要用 index，使用唯一 ID
-            <VideoCard key={v.id || v._id} video={v} />
+            <VideoCard
+              key={`${v.id || v._id}-${v.source_ref || ""}-${v.season_no ?? ""}`}
+              video={v}
+            />
           ))}
         </div>
       )}

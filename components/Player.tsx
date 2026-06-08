@@ -82,6 +82,7 @@ const Player: React.FC<PlayerProps> = ({
       fastForward: !isTablet,
       autoOrientation: false,
       moreVideoAttr: {
+        crossorigin: "anonymous",
         "x5-video-player-type": "h5-page",
         "x5-video-orientation": "landscape",
         "x5-playsinline": "true",

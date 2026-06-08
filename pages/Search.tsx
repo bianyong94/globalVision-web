@@ -1,469 +1,383 @@
-import React, { useState, useEffect, useRef } from "react"
-import { useSearchParams, useNavigate } from "react-router-dom"
-import { useInfiniteQuery } from "@tanstack/react-query"
-import { fetchVideos } from "../services/api"
-import VideoCard from "../components/VideoCard"
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
-  Search as SearchIcon,
+  ChevronDown,
   Loader2,
-  Film,
   RefreshCw,
-  Tv,
-  Clapperboard,
-  Music,
-  XCircle,
-  Trophy,
-  MoreHorizontal,
-  SlidersHorizontal,
-  ArrowUpDown,
+  Search as SearchIcon,
+  Sparkles,
+  TrendingUp,
+  History,
 } from "lucide-react"
-import VideoList from "./VideoList" // 引入上面的组件
-// ==========================================
-// 1. 静态配置
-// ==========================================
+import SEO from "../components/SEO"
+import {
+  fetchSearchAutocomplete,
+  fetchSearchLatelyWords,
+  fetchSearchRanking,
+  fetchSearchResults,
+} from "../services/api"
+import { getProxyUrl } from "../utils/common"
+import { MovieListItem } from "../types"
 
-const CATEGORIES = [
-  { key: "all", name: "全局", icon: null },
-  { key: "movie", name: "电影", icon: <Film size={14} /> },
-  { key: "tv", name: "剧集", icon: <Tv size={14} /> },
-  { key: "anime", name: "动漫", icon: <Clapperboard size={14} /> },
-  { key: "variety", name: "综艺", icon: <Music size={14} /> },
-  { key: "sports", name: "体育", icon: <Trophy size={14} /> },
-]
+const PAGE_SIZE = 12
+const STORAGE_KEY = "globalVision.search.v3"
 
-const TAGS_MAP: Record<string, { label: string; value: string }[]> = {
-  all: [
-    { label: "Netflix", value: "netflix" },
-    { label: "高分影视", value: "high_score" },
-  ],
-  movie: [
-    { label: "全部", value: "" },
-    { label: "Netflix", value: "netflix" },
-    { label: "动作", value: "动作" },
-    { label: "科幻", value: "科幻" },
-    { label: "悬疑", value: "悬疑" },
-    { label: "灾难", value: "灾难" },
-    { label: "喜剧", value: "喜剧" },
-    { label: "爱情", value: "爱情" },
-    { label: "战争", value: "战争" },
-    { label: "犯罪", value: "犯罪" },
-  ],
-  tv: [
-    { label: "全部", value: "" },
-    { label: "国产剧", value: "国产" },
-    { label: "美剧", value: "欧美" },
-    { label: "韩剧", value: "韩剧" },
-    { label: "Netflix", value: "netflix" },
-    { label: "悬疑", value: "悬疑" },
-    { label: "喜剧", value: "喜剧" },
-    { label: "爱情", value: "爱情" },
-    { label: "战争", value: "战争" },
-    { label: "犯罪", value: "犯罪" },
-  ],
-  anime: [
-    { label: "全部", value: "" },
-    { label: "国产动漫", value: "国漫" },
-    { label: "日本动漫", value: "日本" },
-  ],
-  variety: [
-    { label: "全部", value: "" },
-    { label: "大陆综艺", value: "大陆" },
-    { label: "韩国综艺", value: "韩剧" },
-    { label: "欧美综艺", value: "欧美" },
-  ],
-  sports: [
-    { label: "全部", value: "" },
-    { label: "NBA", value: "NBA" },
-    { label: "足球", value: "足球" },
-    { label: "F1", value: "F1" },
-  ],
-}
-
-const SORT_OPTIONS = [
-  { label: "按时间", value: "time" },
-  { label: "按评分", value: "rating" },
-]
-
-const currentYear = new Date().getFullYear()
-const YEARS = [
-  "全部",
-  ...Array.from({ length: 15 }, (_, i) => String(currentYear - i)),
-]
-
-const STORAGE_KEY = "GV_SEARCH_STATE_V2"
+const getSearchWord = (item: { word?: string; name?: string }) =>
+  item.word || item.name || ""
 
 const Search = () => {
-  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  // ==========================================
-  // 2. 状态初始化 (移除 viewMode)
-  // ==========================================
-  const [state, setState] = useState(() => {
-    const saved = sessionStorage.getItem(STORAGE_KEY)
-    const parsedSaved = saved ? JSON.parse(saved) : {}
-
-    const urlQ = searchParams.get("q")
-    const urlCat = searchParams.get("cat")
-    const urlTag = searchParams.get("tag")
-
-    return {
-      keyword: urlQ !== null ? urlQ : parsedSaved.keyword || "",
-      cat: urlCat || parsedSaved.cat || "all",
-      tag: urlTag || parsedSaved.tag || "",
-      year: parsedSaved.year || "全部",
-      sort: parsedSaved.sort || "time",
+  const restoredState = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY)
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
     }
-  })
+  }, [])
 
-  const [inputValue, setInputValue] = useState(state.keyword)
-  const [showFilters, setShowFilters] = useState(false)
-  const [isSpinning, setIsSpinning] = useState(false)
-  const loadMoreRef = useRef<HTMLDivElement>(null)
-
-  // 新增：记录哪些 Tab 已经被用户点过了
-  const [visitedCats, setVisitedCats] = useState<Set<string>>(
-    new Set([state.cat]),
+  const [keyword, setKeyword] = useState(
+    searchParams.get("q") || restoredState.keyword || "",
   )
+  const deferredKeyword = useDeferredValue(keyword.trim())
+  const hasKeyword = deferredKeyword.length > 0
 
-  // 当 state.cat 变化时，将其加入已访问列表
-  useEffect(() => {
-    setVisitedCats((prev) => {
-      const newSet = new Set(prev)
-      newSet.add(state.cat)
-      return newSet
-    })
-  }, [state.cat])
-  // ==========================================
-  // 3. 数据请求
-  // ==========================================
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetching,
-    isFetchingNextPage,
-    refetch,
-    isRefetching,
-    isError,
-  } = useInfiniteQuery({
-    queryKey: [
-      "search_v2",
-      state.cat,
-      state.tag,
-      state.keyword,
-      state.year,
-      state.sort,
-    ],
-    queryFn: async ({ pageParam = 1, signal }) => {
-      const params: any = {
-        pg: pageParam,
-        year: state.year === "全部" ? undefined : state.year,
-        sort: state.sort,
-      }
-      if (state.keyword) {
-        params.wd = state.keyword
-        params.view = "season"
-      }
-      if (state.cat && state.cat !== "all") params.cat = state.cat
-      if (state.tag) params.tag = state.tag
-
-      const res = await fetchVideos(params, signal)
-
-      return {
-        list: res.list || [],
-        hasMore: (res.list?.length || 0) > 0,
-        page: Number(pageParam),
-      }
-    },
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.hasMore || lastPage.list.length < 5) return undefined
-      return lastPage.page + 1
-    },
-    staleTime: 1000 * 60 * 2,
+  const autocompleteQuery = useQuery({
+    queryKey: ["search-autocomplete", deferredKeyword],
+    queryFn: () => fetchSearchAutocomplete(deferredKeyword),
+    enabled: hasKeyword,
+    staleTime: 1000 * 30,
   })
 
-  const videos = data?.pages.flatMap((page) => page.list) || []
-  const isEmpty = !isFetching && videos.length === 0
-  const isFilterLoading = isFetching && !isFetchingNextPage && !isRefetching
+  const rankingQuery = useQuery({
+    queryKey: ["search-ranking"],
+    queryFn: fetchSearchRanking,
+    enabled: !hasKeyword,
+    staleTime: 1000 * 60 * 10,
+  })
 
-  // ==========================================
-  // 4. 事件处理
-  // ==========================================
+  const latelyQuery = useQuery({
+    queryKey: ["search-lately"],
+    queryFn: fetchSearchLatelyWords,
+    enabled: !hasKeyword,
+    staleTime: 1000 * 60 * 10,
+  })
+
+  const listQuery = useInfiniteQuery({
+    queryKey: ["search-results", deferredKeyword],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const page = Number(pageParam || 1)
+      const result = await fetchSearchResults({
+        keyword: deferredKeyword,
+        page,
+        res_type: "by_movie_name",
+      })
+      return {
+        page,
+        list: result.list,
+        hasMore: result.list.length >= PAGE_SIZE,
+      }
+    },
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore ? lastPage.page + 1 : undefined,
+    enabled: hasKeyword,
+    staleTime: 1000 * 60 * 5,
+  })
 
   useEffect(() => {
-    const newState = {
-      keyword: state.keyword,
-      cat: state.cat,
-      tag: state.tag,
-      year: state.year,
-      sort: state.sort,
-    }
+    const state = { keyword }
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(newState))
+    const next = new URLSearchParams()
+    if (keyword.trim()) next.set("q", keyword.trim())
+    setSearchParams(next, { replace: true })
+  }, [keyword, setSearchParams])
 
-    setSearchParams(
-      (prev) => {
-        const newParams = new URLSearchParams(prev)
-        if (state.keyword) newParams.set("q", state.keyword)
-        else newParams.delete("q")
+  const results = listQuery.data?.pages.flatMap((page) => page.list) || []
+  const suggestions = autocompleteQuery.data || []
+  const hotWords = rankingQuery.data || []
+  const recentWords = latelyQuery.data || []
 
-        if (state.cat && state.cat !== "all") newParams.set("cat", state.cat)
-        else newParams.delete("cat")
-
-        if (state.tag) newParams.set("tag", state.tag)
-        else newParams.delete("tag")
-
-        return newParams
-      },
-      { replace: true },
-    )
-  }, [state, setSearchParams])
-
-  useEffect(() => {
-    const el = loadMoreRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage)
-          fetchNextPage()
-      },
-      { threshold: 0.1, rootMargin: "200px" },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setState((prev) => ({
-      ...prev,
-      keyword: inputValue.trim(),
-      cat: "all",
-      tag: "",
-    }))
-    ;(document.activeElement as HTMLElement)?.blur()
+  const openDetail = (item: MovieListItem) => {
+    navigate(`/detail/${item.id}`)
   }
 
-  const clearSearch = () => {
-    setInputValue("")
-    setState((prev) => ({ ...prev, keyword: "" }))
-  }
-
-  const handleRefresh = () => {
-    setIsSpinning(true)
-    refetch()
-    setTimeout(() => setIsSpinning(false), 1000)
-  }
-
-  const renderTags = () => {
-    const tags = TAGS_MAP[state.cat] || []
-    if (tags.length === 0) return null
-
-    return (
-      <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto no-scrollbar">
-        {tags.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => {
-              setState((prev) => ({ ...prev, tag: t.value }))
-            }}
-            className={`px-3 py-1.5 text-xs rounded-full border transition-all whitespace-nowrap ${
-              state.tag === t.value
-                ? "bg-emerald-500 text-white border-emerald-500 font-bold shadow-lg shadow-emerald-500/20"
-                : "bg-[#1a1a1a] text-gray-400 border-white/5 hover:border-white/20"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-    )
+  const applyKeyword = (value: string) => {
+    setKeyword(value)
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] pb-20 selection:bg-emerald-500/30">
-      <button
-        onClick={handleRefresh}
-        disabled={isRefetching || isSpinning}
-        className="fixed bottom-24 right-5 z-50 bg-[#1a1a1a]/80 backdrop-blur-md text-emerald-500 p-3.5 rounded-full shadow-2xl border border-white/10 active:scale-90 transition-all duration-200 hover:bg-[#2a2a2a]"
-        style={{ boxShadow: "0 0 20px rgba(16, 185, 129, 0.2)" }}
-      >
-        <RefreshCw
-          size={22}
-          className={isRefetching || isSpinning ? "animate-spin" : ""}
-        />
-      </button>
+    <div className="min-h-screen w-full overflow-x-hidden bg-[radial-gradient(circle_at_top_left,_rgba(132,204,22,0.15),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.12),_transparent_40%),linear-gradient(180deg,#0a0d1a_0%,#05070a_40%,#05070a_100%)] pb-28 text-white antialiased">
+      <SEO title="搜索" description="搜索影片、剧集、演员和热门关键词。" />
 
-      <div className="sticky top-0 z-30 bg-[#050505]/95 backdrop-blur-xl border-b border-white/5 pb-2 transition-all">
-        {/* 顶部搜索栏 */}
-        <div className="px-4 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))] flex gap-3 items-center">
-          <form onSubmit={handleSearchSubmit} className="flex-1">
-            <div className="relative flex items-center bg-[#121212] rounded-full border border-white/10 focus-within:border-emerald-500/50 transition-colors h-10">
-              {isFilterLoading ? (
-                <Loader2
-                  size={16}
-                  className="absolute left-3 text-emerald-500 animate-spin"
-                />
-              ) : (
-                <SearchIcon
-                  size={16}
-                  className="absolute left-3 text-gray-500"
-                />
-              )}
-              <input
-                type="search"
-                placeholder="搜索影片、剧集、演员..."
-                className="w-full bg-transparent text-white pl-10 pr-10 h-full outline-none text-sm placeholder-gray-600 appearance-none"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+      {/* 强固顶霓虹发光顶栏 - 升级为 fixed 绝对挂载，确保 100% 固顶成功 */}
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.04] bg-[#05070a]/75 backdrop-blur-2xl shadow-[0_4px_30px_rgba(0,0,0,0.4)] transition-all duration-300">
+        <div className="mx-auto max-w-6xl px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-4 w-full box-border">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (keyword.trim()) {
+                listQuery.refetch()
+              }
+            }}
+          >
+            <div className="flex h-12 items-center gap-3 rounded-full border border-white/10 bg-white/[0.03] px-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] focus-within:border-lime-400/40 focus-within:bg-white/[0.07] focus-within:shadow-[0_0_20px_rgba(132,204,22,0.08)] transition-all duration-300">
+              <SearchIcon
+                size={16}
+                className="text-white/40 transition-colors duration-300"
               />
-              {inputValue && (
+              <input
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="键入影片、演员、关键词..."
+                className="w-full bg-transparent text-sm outline-none placeholder:text-white/20 text-white"
+              />
+              {keyword.trim() ? (
                 <button
-                  type="button"
-                  onClick={clearSearch}
-                  className="absolute right-3 text-gray-500 hover:text-white p-1"
+                  type="submit"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-lime-400/30 bg-gradient-to-r from-lime-400/20 to-emerald-400/20 px-4 py-1.5 text-xs font-bold text-lime-300 shadow-md backdrop-blur-sm active:scale-95 transition-all"
                 >
-                  <XCircle size={14} />
+                  搜索
                 </button>
-              )}
+              ) : null}
             </div>
           </form>
-
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`p-2.5 rounded-full border transition-colors ${
-              showFilters || state.year !== "全部" || state.sort !== "time"
-                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
-                : "bg-[#121212] text-gray-500 border-white/10"
-            }`}
-          >
-            <SlidersHorizontal size={18} />
-          </button>
         </div>
+      </header>
 
-        {/* 分类 Tabs */}
-        <div className="flex items-center gap-4 px-4 overflow-x-auto no-scrollbar border-b border-white/5">
-          {CATEGORIES.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => {
-                setState((prev) => ({
-                  ...prev,
-                  cat: tab.key,
-                  tag: "",
-                }))
-              }}
-              className={`
-                py-3 text-sm font-bold whitespace-nowrap transition-all relative flex items-center gap-1.5
-                ${
-                  state.cat === tab.key
-                    ? "text-white"
-                    : "text-gray-500 hover:text-gray-300"
-                }
-              `}
-            >
-              {tab.icon}
-              {tab.name}
-              {state.cat === tab.key && (
-                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-emerald-500 shadow-[0_-2px_10px_rgba(16,185,129,0.5)]" />
+      {/* 主体区增加了 pt-24 (在移动端安全区域基础上)，防止顶部的 fixed 搜索栏遮挡正文内容 */}
+      <main className="mx-auto max-w-6xl px-4 pt-[calc(env(safe-area-inset-top)+5.5rem)] w-full box-border min-w-0">
+        {!hasKeyword ? (
+          <div className="space-y-10 animate-fade-in">
+            {/* 大家都在搜 */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-lime-400/10 text-lime-400">
+                    <TrendingUp size={14} />
+                  </div>
+                  <h2 className="text-lg font-black tracking-tight sm:text-xl bg-gradient-to-r from-white via-white to-white/70 bg-clip-text text-transparent">
+                    大家都在搜
+                  </h2>
+                </div>
+                <button
+                  onClick={() => {
+                    rankingQuery.refetch()
+                    latelyQuery.refetch()
+                  }}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/5 bg-white/[0.03] text-white/60 hover:text-white hover:bg-white/10 active:scale-95 transition-all"
+                >
+                  <RefreshCw
+                    size={13}
+                    className={
+                      rankingQuery.isRefetching || latelyQuery.isRefetching
+                        ? "animate-spin text-lime-400"
+                        : ""
+                    }
+                  />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+                {hotWords.slice(0, 8).map((item, index) => {
+                  const word = getSearchWord(item)
+                  const badgeColors = [
+                    "from-amber-400 to-orange-500 text-black font-black",
+                    "from-slate-300 to-slate-400 text-black font-black",
+                    "from-amber-600 to-amber-700 text-white font-bold",
+                  ]
+                  const currentBadge =
+                    badgeColors[index] ||
+                    "bg-white/10 text-white/50 text-xs font-medium"
+
+                  return (
+                    <button
+                      key={`${word}-${index}`}
+                      onClick={() => applyKeyword(word)}
+                      className="group flex items-center gap-3 rounded-xl border border-white/[0.03] bg-gradient-to-b from-white/[0.02] to-transparent p-3 text-left hover:border-lime-400/20 hover:from-lime-400/[0.02] hover:to-lime-400/[0.01] transition-all duration-300 min-w-0 shadow-sm"
+                    >
+                      <div
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] ${index < 3 ? `bg-gradient-to-br ${currentBadge}` : currentBadge}`}
+                      >
+                        {index + 1}
+                      </div>
+                      <span className="truncate text-xs sm:text-sm font-semibold text-white/70 group-hover:text-lime-300 transition-colors w-full">
+                        {word}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            {/* 最近搜索 */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-400/10 text-blue-400">
+                    <History size={14} />
+                  </div>
+                  <h2 className="text-base font-extrabold tracking-tight sm:text-lg text-white/80">
+                    最近搜索
+                  </h2>
+                </div>
+                <button
+                  onClick={() => latelyQuery.refetch()}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/5 bg-white/[0.03] text-white/60 hover:text-white hover:bg-white/10 active:scale-95 transition-all"
+                >
+                  <RefreshCw
+                    size={13}
+                    className={
+                      latelyQuery.isRefetching
+                        ? "animate-spin text-blue-400"
+                        : ""
+                    }
+                  />
+                </button>
+              </div>
+
+              {recentWords.length > 0 ? (
+                <div className="flex flex-wrap gap-2.5">
+                  {recentWords.slice(0, 8).map((item, index) => {
+                    const word = getSearchWord(item)
+                    return (
+                      <button
+                        key={`${word}-${index}`}
+                        onClick={() => applyKeyword(word)}
+                        className="rounded-full border border-white/5 bg-white/[0.02] px-4 py-2 text-xs font-medium text-white/60 hover:border-blue-400/20 hover:bg-blue-400/[0.04] hover:text-blue-300 transition-all"
+                      >
+                        {word}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="text-[11px] text-white/20 tracking-wide">
+                  暂无搜索历史记录
+                </div>
               )}
-            </button>
-          ))}
-        </div>
+            </section>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* 智能检索发现栏 */}
+            {suggestions.length > 0 && (
+              <section className="rounded-2xl border border-white/[0.04] bg-gradient-to-r from-lime-400/[0.02] via-emerald-400/[0.01] to-transparent p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] backdrop-blur-md">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-bold text-lime-400/70 uppercase tracking-wider">
+                  <Sparkles size={12} className="text-lime-400" />
+                  <span>搜索智能联想发现</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {suggestions.slice(0, 10).map((item) => {
+                    const word = getSearchWord(item)
+                    return (
+                      <button
+                        key={word}
+                        onClick={() => applyKeyword(word)}
+                        className="rounded-xl border border-white/5 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70 hover:border-lime-400/20 hover:bg-lime-400/10 hover:text-white transition-all"
+                      >
+                        {word}
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
 
-        {/* 子标签 */}
-        <div
-          className={`transition-all duration-300 overflow-hidden ${
-            state.cat ? "mt-2" : ""
-          }`}
-        >
-          {renderTags()}
-        </div>
-
-        {/* 筛选面板 */}
-        <div
-          className={`overflow-hidden transition-all duration-300 bg-[#0a0a0a] ${
-            showFilters ? "max-h-40 border-b border-white/5" : "max-h-0"
-          }`}
-        >
-          <div className="px-4 py-3 space-y-3">
-            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
-              <span className="text-xs text-gray-500 whitespace-nowrap flex items-center gap-1">
-                <ArrowUpDown size={12} /> 排序
-              </span>
-              {SORT_OPTIONS.map((opt) => (
+            {/* 结果数据板块容器 */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <h2 className="text-sm font-bold tracking-tight text-white/60 sm:text-base min-w-0 truncate pr-4">
+                  搜索结果：
+                  <span className="text-lime-300 font-extrabold">
+                    「{deferredKeyword}」
+                  </span>
+                </h2>
                 <button
-                  key={opt.value}
-                  onClick={() =>
-                    setState((prev) => ({ ...prev, sort: opt.value }))
-                  }
-                  className={`px-3 py-1 text-xs rounded border whitespace-nowrap ${
-                    state.sort === opt.value
-                      ? "bg-white/10 text-emerald-400 border-emerald-500/30"
-                      : "border-white/5 text-gray-500"
-                  }`}
+                  onClick={() => listQuery.refetch()}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/10 active:scale-95 transition-all"
                 >
-                  {opt.label}
+                  <Loader2
+                    size={12}
+                    className={
+                      listQuery.isRefetching ? "animate-spin text-lime-400" : ""
+                    }
+                  />
+                  <span>刷新</span>
                 </button>
-              ))}
-            </div>
+              </div>
 
-            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
-              <span className="text-xs text-gray-500 whitespace-nowrap flex items-center gap-1">
-                <MoreHorizontal size={12} /> 年份
-              </span>
-              {YEARS.map((y) => (
-                <button
-                  key={y}
-                  onClick={() => setState((prev) => ({ ...prev, year: y }))}
-                  className={`px-3 py-1 text-xs rounded border whitespace-nowrap ${
-                    state.year === y
-                      ? "bg-white/10 text-emerald-400 border-emerald-500/30"
-                      : "border-white/5 text-gray-500"
-                  }`}
-                >
-                  {y}
-                </button>
-              ))}
-            </div>
+              {listQuery.isLoading && results.length === 0 ? (
+                <div className="flex items-center justify-center py-28">
+                  <Loader2 className="h-7 w-7 animate-spin text-lime-400" />
+                </div>
+              ) : results.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 w-full">
+                    {results.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => openDetail(item)}
+                        className="group text-left focus:outline-none w-full min-w-0"
+                      >
+                        <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md w-full">
+                          <img
+                            src={getProxyUrl(item.cover)}
+                            alt={item.name}
+                            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                            loading="lazy"
+                          />
+                          {(item.dynamic || item.label) && (
+                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-2 pb-2 pt-5 text-right">
+                              <span className="text-[10px] text-lime-300 font-semibold line-clamp-1">
+                                {item.dynamic || item.label}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <h3 className="mt-2 line-clamp-1 text-xs sm:text-sm font-semibold text-white/70 group-hover:text-lime-400 transition-colors w-full">
+                          {item.name}
+                        </h3>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="py-12 text-center w-full">
+                    {listQuery.hasNextPage ? (
+                      <button
+                        onClick={() => listQuery.fetchNextPage()}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-6 py-2.5 text-xs font-bold text-white/80 hover:bg-white/10 hover:text-white active:scale-95 transition-all shadow-sm"
+                      >
+                        {listQuery.isFetchingNextPage ? (
+                          <Loader2
+                            size={13}
+                            className="animate-spin text-lime-400"
+                          />
+                        ) : (
+                          <ChevronDown size={13} className="text-white/50" />
+                        )}
+                        滑动或点击加载更多
+                      </button>
+                    ) : (
+                      <div className="text-[10px] text-white/20 tracking-widest uppercase font-bold">
+                        • END OF RESULTS •
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-6 py-20 text-center text-xs sm:text-sm text-white/40 max-w-xl mx-auto">
+                  未搜寻到匹配资源，建议更替搜索条件或缩短关键词。
+                </div>
+              )}
+            </section>
           </div>
-        </div>
-
-        {/* 结果统计栏 (移除视图切换按钮) */}
-        <div className="px-4 mt-2 flex items-center justify-between min-h-[24px]">
-          <div className="text-[10px] text-gray-500">
-            {isFetching ? "搜索中..." : `已加载 ${videos.length} 个相关资源`}
-          </div>
-        </div>
-      </div>
-
-      {/* 🔴 替换原来的 Video Grid 区域 */}
-      {/* 我们遍历所有分类，而不是只渲染当前分类 */}
-      {CATEGORIES.map((category) => {
-        // 性能优化：如果没有访问过这个 Tab，就不渲染 DOM，节省内存
-        if (!visitedCats.has(category.key)) return null
-
-        const isActive = state.cat === category.key
-
-        return (
-          <div
-            key={category.key}
-            // ✨ 魔法所在：使用 CSS 显隐，而不是销毁组件
-            style={{ display: isActive ? "block" : "none" }}
-          >
-            <VideoList
-              cat={category.key}
-              tag={state.tag} // 注意：这里假设 tag 是跟随 cat 变化的，或者你可以为每个 Tab 维护独立的 tag 状态
-              keyword={state.keyword}
-              year={state.year}
-              sort={state.sort}
-              isActive={isActive}
-            />
-          </div>
-        )
-      })}
+        )}
+      </main>
     </div>
   )
 }

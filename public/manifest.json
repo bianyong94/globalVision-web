@@ -1,11 +1,11 @@
 {
-  "name": "全球影视 - 免费高清",
-  "short_name": "全球影视",
+  "name": "Global Vision",
+  "short_name": "Global Vision",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050505",
   "theme_color": "#050505",
-  "description": "免费高清影视聚合平台",
+  "description": "基于接口文档重构的影视前端",
   "icons": [
     {
       "src": "/logo-192.png",
