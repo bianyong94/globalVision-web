@@ -28,6 +28,13 @@ import { MovieEpisodeItem, MovieListItem } from "../types"
 const looksLikeMediaUrl = (value: string) =>
   /\.(m3u8|mp4|flv|mkv)(?:$|[?#])/i.test(value) || value.startsWith("blob:")
 
+const isPlayableUrl = (value: string) => {
+  const normalized = value.trim()
+  if (!normalized || normalized.startsWith("parse_")) return false
+  if (looksLikeMediaUrl(normalized)) return true
+  return normalized.startsWith("http://") || normalized.startsWith("https://")
+}
+
 const Detail = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -255,24 +262,18 @@ const Detail = () => {
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      if (!detail || !activeEpisode?.play_url) {
-        setResolvedPlayUrl("")
-        return
-      }
-
-      setResolvedPlayUrl("")
+      if (!detail || !activeEpisode?.play_url) return
 
       const resolved = await resolveEpisodeUrl(activeEpisode)
       if (cancelled) return
 
       if (resolved) {
         setResolvedPlayUrl(resolved)
+        setPlaybackError("")
         return
       }
 
-      if (!cancelled) {
-        void handlePlayerError()
-      }
+      void handlePlayerError()
     }
 
     run()
@@ -288,11 +289,10 @@ const Detail = () => {
     resolveEpisodeUrl,
   ])
 
-  useEffect(() => {
-    if (!detail || !activeEpisode?.play_url) {
-      setResolvedPlayUrl("")
-    }
-  }, [activeEpisode?.play_url, detail])
+  const playerUrl = useMemo(
+    () => (isPlayableUrl(resolvedPlayUrl) ? resolvedPlayUrl : ""),
+    [resolvedPlayUrl],
+  )
 
   const relatedItems =
     relatedQuery.data?.list?.filter((item) => item.id !== detail?.id) || []
@@ -388,9 +388,9 @@ const Detail = () => {
 
           <div className="relative z-10 w-full bg-black">
             <div className="aspect-video w-full bg-[#040508] relative">
-              {resolvedPlayUrl ? (
+              {playerUrl ? (
                 <Player
-                  url={resolvedPlayUrl}
+                  url={playerUrl}
                   poster={detail.cover}
                   onError={() => {
                     void handlePlayerError()

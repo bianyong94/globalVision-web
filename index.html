@@ -7,10 +7,6 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="upgrade-insecure-requests"
-    />
     <meta name="referrer" content="no-referrer" />
     <!-- 设置浏览器顶栏颜色为黑色，与 App 背景融合 -->
     <meta name="theme-color" content="#050505" />
@@ -33,11 +29,6 @@
     <link rel="apple-touch-icon" href="/logo-192.png" />
     <title>Global Vision</title>
 
-    <script>
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/sw.js")
-      }
-    </script>
     <style>
       body {
         background-color: #0b0b0b;

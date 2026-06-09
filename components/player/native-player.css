@@ -1,0 +1,27 @@
+.gv-native-player {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #040508;
+}
+
+.gv-native-player .gv-native-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #040508;
+}
+
+.gv-native-player:fullscreen,
+.gv-native-player:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+.gv-native-player:fullscreen .gv-native-video,
+.gv-native-player:-webkit-full-screen .gv-native-video {
+  width: 100%;
+  height: 100%;
+}

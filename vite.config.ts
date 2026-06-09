@@ -14,9 +14,26 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      ...(mode === "production"
+        ? [
+            {
+              name: "inject-production-csp",
+              transformIndexHtml(html: string) {
+                return html.replace(
+                  '<meta name="referrer"',
+                  '<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />\n    <meta name="referrer"',
+                )
+              },
+            },
+          ]
+        : []),
       // 🔥 新增：PWA 插件配置 (核心)
       VitePWA({
         registerType: "autoUpdate",
+        // 开发环境不注册 SW，避免 Safari 缓存空壳页面导致黑屏
+        devOptions: {
+          enabled: false,
+        },
         workbox: {
           // 强制新 SW 尽快接管，减少旧缓存导致的“页面一直请求”
           skipWaiting: true,

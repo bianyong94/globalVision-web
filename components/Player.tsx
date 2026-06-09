@@ -1,16 +1,9 @@
 import React, { useEffect, useRef } from "react"
-import videojs from "video.js"
-import type VideoJsPlayer from "video.js/dist/types/player"
 import type Hls from "hls.js"
-import "video.js/dist/video-js.css"
-import "./player/videojs-theme.css"
-import {
-  applyVideoCastAttrs,
-  getControlBarChildren,
-  registerVideoJsExtensions,
-} from "./player/videojs-extensions"
-import { destroyHlsInstance, loadPlayerSource } from "./player/hls-loader"
+import { configureMobileVideo } from "./player/device"
+import { destroyHlsInstance, loadVideoSource } from "./player/hls-loader"
 import { normalizeMediaUrl } from "../utils/common"
+import "./player/native-player.css"
 
 interface PlayerProps {
   url: string
@@ -22,8 +15,6 @@ interface PlayerProps {
   onError?: () => void
 }
 
-registerVideoJsExtensions()
-
 const Player: React.FC<PlayerProps> = ({
   url,
   poster,
@@ -33,8 +24,7 @@ const Player: React.FC<PlayerProps> = ({
   onEnded,
   onError,
 }) => {
-  const shellRef = useRef<HTMLDivElement>(null)
-  const playerRef = useRef<VideoJsPlayer | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const stallTimerRef = useRef<number | null>(null)
   const callbacksRef = useRef({ onTimeUpdate, onEnded, onError })
@@ -45,8 +35,10 @@ const Player: React.FC<PlayerProps> = ({
   }, [onTimeUpdate, onEnded, onError])
 
   useEffect(() => {
-    const shell = shellRef.current
-    if (!shell) return
+    const video = videoRef.current
+    if (!video || !playUrl) return
+
+    configureMobileVideo(video)
 
     const clearStallTimer = () => {
       if (stallTimerRef.current) {
@@ -63,115 +55,79 @@ const Player: React.FC<PlayerProps> = ({
       }, 25000)
     }
 
-    const handleFatalError = () => {
+    const handleError = () => {
+      const code = video.error?.code
+      if (!code) return
       clearStallTimer()
       callbacksRef.current.onError?.()
     }
 
-    const videoEl = document.createElement("video")
-    videoEl.className =
-      "video-js vjs-big-play-centered vjs-fill w-full h-full"
-    videoEl.setAttribute("playsinline", "true")
-    videoEl.setAttribute("crossorigin", "anonymous")
-    shell.appendChild(videoEl)
+    loadVideoSource(video, playUrl, hlsRef, () => {
+      callbacksRef.current.onError?.()
+    })
 
-    let player: VideoJsPlayer
-    try {
-      player = videojs(videoEl, {
-        controls: true,
-        autoplay: false,
-        preload: "auto",
-        fluid: false,
-        fill: true,
-        responsive: false,
-        playsinline: true,
-        poster: poster || "",
-        playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
-        html5: {
-          vhs: {
-            overrideNative: false,
-          },
-          nativeAudioTracks: false,
-          nativeVideoTracks: false,
-        },
-        controlBar: {
-          pictureInPictureToggle: false,
-          children: getControlBarChildren(),
-        },
-      })
-    } catch (error) {
-      console.error("video.js init failed:", error)
-      shell.innerHTML = ""
-      handleFatalError()
-      return
+    if (initialTime && initialTime > 0) {
+      const seek = () => {
+        video.currentTime = initialTime
+      }
+      if (video.readyState >= 1) seek()
+      else video.addEventListener("loadedmetadata", seek, { once: true })
     }
 
-    playerRef.current = player
-
-    player.ready(() => {
-      applyVideoCastAttrs(player)
-
-      if (playUrl) {
-        loadPlayerSource(player, playUrl, hlsRef, handleFatalError)
+    let lastTimeEmit = 0
+    const onTimeUpdateEvent = () => {
+      const now = performance.now()
+      if (now - lastTimeEmit < 250) return
+      lastTimeEmit = now
+      if (callbacksRef.current.onTimeUpdate && video.currentTime > 0) {
+        callbacksRef.current.onTimeUpdate(video.currentTime)
       }
+    }
 
-      if (initialTime && initialTime > 0) {
-        player.one("loadedmetadata", () => {
-          player.currentTime(initialTime)
-        })
-      }
-    })
-
-    player.on("timeupdate", () => {
-      const current = player.currentTime()
-      if (callbacksRef.current.onTimeUpdate && current > 0) {
-        callbacksRef.current.onTimeUpdate(current)
-      }
-    })
-
-    player.on("ended", () => {
+    const onEndedEvent = () => {
       clearStallTimer()
       callbacksRef.current.onEnded?.()
-    })
+    }
 
-    player.on("error", () => {
-      handleFatalError()
-    })
-
-    player.on("waiting", scheduleStallFail)
-    player.on("stalled", scheduleStallFail)
-    player.on("playing", clearStallTimer)
+    video.addEventListener("timeupdate", onTimeUpdateEvent)
+    video.addEventListener("ended", onEndedEvent)
+    video.addEventListener("error", handleError)
+    video.addEventListener("waiting", scheduleStallFail)
+    video.addEventListener("stalled", scheduleStallFail)
+    video.addEventListener("playing", clearStallTimer)
 
     return () => {
       clearStallTimer()
+      video.removeEventListener("timeupdate", onTimeUpdateEvent)
+      video.removeEventListener("ended", onEndedEvent)
+      video.removeEventListener("error", handleError)
+      video.removeEventListener("waiting", scheduleStallFail)
+      video.removeEventListener("stalled", scheduleStallFail)
+      video.removeEventListener("playing", clearStallTimer)
       destroyHlsInstance(hlsRef.current)
       hlsRef.current = null
-
-      if (playerRef.current && !playerRef.current.isDisposed()) {
-        playerRef.current.dispose()
-      }
-      playerRef.current = null
-      shell.innerHTML = ""
     }
-  }, [])
+  }, [playUrl, initialTime])
 
   useEffect(() => {
-    const player = playerRef.current
-    if (!player || player.isDisposed() || !playUrl) return
-
-    player.poster(poster || "")
-    loadPlayerSource(player, playUrl, hlsRef, () => {
-      callbacksRef.current.onError?.()
-    })
-    applyVideoCastAttrs(player)
-  }, [playUrl, poster])
+    const video = videoRef.current
+    if (video && poster) {
+      video.poster = poster
+    }
+  }, [poster])
 
   return (
-    <div
-      className={`gv-video-player ${className || ""}`.trim()}
-      style={{ width: "100%", height: "100%" }}
-    >
-      <div ref={shellRef} data-vjs-player className="w-full h-full" />
+    <div className={`gv-native-player ${className || ""}`.trim()}>
+      <video
+        ref={videoRef}
+        className="gv-native-video"
+        controls
+        playsInline
+        preload="metadata"
+        poster={poster || undefined}
+        crossOrigin="anonymous"
+        controlsList="nodownload noremoteplayback"
+      />
     </div>
   )
 }

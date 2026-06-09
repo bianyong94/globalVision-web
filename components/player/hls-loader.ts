@@ -1,12 +1,7 @@
 import Hls from "hls.js"
-import type VideoJsPlayer from "video.js/dist/types/player"
 import { normalizeMediaUrl } from "../../utils/common"
-import { getSourceType } from "./videojs-extensions"
 
 export const isM3u8Url = (url: string) => /\.m3u8(?:$|[?#])/i.test(url)
-
-const getVideoEl = (player: VideoJsPlayer) =>
-  player.tech(true).el() as HTMLVideoElement
 
 const createHls = (onFatal?: () => void) => {
   const hls = new Hls({
@@ -52,8 +47,8 @@ export const destroyHlsInstance = (hls: Hls | null) => {
   hls.destroy()
 }
 
-export const loadPlayerSource = (
-  player: VideoJsPlayer,
+export const loadVideoSource = (
+  video: HTMLVideoElement,
   rawUrl: string,
   hlsRef: { current: Hls | null },
   onFatal?: () => void,
@@ -64,7 +59,6 @@ export const loadPlayerSource = (
   destroyHlsInstance(hlsRef.current)
   hlsRef.current = null
 
-  const video = getVideoEl(player)
   video.removeAttribute("src")
   video.load()
 
@@ -74,19 +68,14 @@ export const loadPlayerSource = (
       hls.loadSource(url)
       hls.attachMedia(video)
       hlsRef.current = hls
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        player.play()?.catch(() => {})
-      })
       return
     }
 
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      player.src({ src: url, type: "application/x-mpegURL" })
-      player.play()?.catch(() => {})
+      video.src = url
       return
     }
   }
 
-  player.src({ src: url, type: getSourceType(url) })
-  player.play()?.catch(() => {})
+  video.src = url
 }

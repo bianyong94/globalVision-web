@@ -1,45 +1,14 @@
 import videojs from "video.js"
 import type Player from "video.js/dist/types/player"
+import {
+  configureMobileVideo,
+  getDeviceInfo,
+  type VideoWithCast,
+} from "./device"
+import { toggleNativeFullscreen } from "./mobile-fullscreen"
 
-export type VideoWithCast = HTMLVideoElement & {
-  webkitShowPlaybackTargetPicker?: () => void
-  webkitEnterFullscreen?: () => void
-  webkitEnterFullScreen?: () => void
-  webkitExitFullscreen?: () => void
-  webkitDisplayingFullscreen?: boolean
-  disableRemotePlayback?: boolean
-  remote?: {
-    state?: string
-    prompt?: () => Promise<void>
-    watchAvailability?: (
-      callback: (available: boolean) => void,
-    ) => Promise<void>
-  }
-}
-
-export const getDeviceInfo = () => {
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
-  const isAndroid = /Android/i.test(ua)
-  const isIOS =
-    /iPhone|iPad|iPod/i.test(ua) ||
-    (typeof navigator !== "undefined" &&
-      navigator.platform === "MacIntel" &&
-      navigator.maxTouchPoints > 1)
-  const isStandalone =
-    (typeof window !== "undefined" &&
-      window.matchMedia?.("(display-mode: standalone)")?.matches) ||
-    (typeof navigator !== "undefined" &&
-      Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
-
-  return { isAndroid, isIOS, isStandalone, isMobile: isIOS || isAndroid }
-}
-
-export const getSourceType = (url: string) => {
-  if (/\.m3u8(?:$|[?#])/i.test(url)) return "application/x-mpegURL"
-  if (/\.mp4(?:$|[?#])/i.test(url)) return "video/mp4"
-  if (/\.webm(?:$|[?#])/i.test(url)) return "video/webm"
-  return "application/x-mpegURL"
-}
+export { configureMobileVideo, getDeviceInfo, getSourceType } from "./device"
+export type { VideoWithCast } from "./device"
 
 const getVideoEl = (player: Player): VideoWithCast | null => {
   const tech = player.tech(true) as { el?: () => HTMLVideoElement } | undefined
@@ -47,9 +16,9 @@ const getVideoEl = (player: Player): VideoWithCast | null => {
 }
 
 const configureVideoForCast = (video: VideoWithCast) => {
+  configureMobileVideo(video)
   video.setAttribute("webkit-airplay", "allow")
   video.setAttribute("x-webkit-airplay", "allow")
-  video.setAttribute("playsinline", "true")
   if ("disableRemotePlayback" in video) {
     video.disableRemotePlayback = false
   }
@@ -111,69 +80,6 @@ const tryCastPlayback = async (video: VideoWithCast) => {
   }
 }
 
-const isVideoFullscreen = (video?: VideoWithCast | null) =>
-  Boolean(
-    document.fullscreenElement ||
-      (document as Document & { webkitFullscreenElement?: Element })
-        .webkitFullscreenElement ||
-      video?.webkitDisplayingFullscreen,
-  )
-
-const isPlayerFullscreen = (player: Player) =>
-  Boolean(
-    player.isFullscreen?.() ||
-      document.fullscreenElement ||
-      (document as Document & { webkitFullscreenElement?: Element })
-        .webkitFullscreenElement ||
-      isVideoFullscreen(getVideoEl(player)),
-  )
-
-const toggleFullscreen = async (player: Player, isIOS: boolean) => {
-  const video = getVideoEl(player)
-  if (!video) return
-
-  if (isPlayerFullscreen(player)) {
-    await player.exitFullscreen?.().catch(() => {})
-    await document.exitFullscreen?.().catch(() => {})
-    ;(
-      document as Document & { webkitExitFullscreen?: () => void }
-    ).webkitExitFullscreen?.()
-    video.webkitExitFullscreen?.()
-    return
-  }
-
-  if (isIOS) {
-    const enter = video.webkitEnterFullscreen || video.webkitEnterFullScreen
-    if (typeof enter === "function") {
-      enter.call(video)
-      return
-    }
-  }
-
-  const candidates = [
-    video,
-    player.el(),
-    player.el().querySelector(".vjs-tech") as HTMLElement | null,
-  ].filter(Boolean) as HTMLElement[]
-
-  for (const target of candidates) {
-    const request =
-      target.requestFullscreen?.bind(target) ||
-      (target as HTMLElement & { webkitRequestFullscreen?: () => void })
-        .webkitRequestFullscreen?.bind(target)
-    if (!request) continue
-
-    try {
-      await request()
-      return
-    } catch {
-      // try next
-    }
-  }
-
-  await player.requestFullscreen?.().catch(() => {})
-}
-
 let extensionsRegistered = false
 
 export const registerVideoJsExtensions = () => {
@@ -210,7 +116,7 @@ export const registerVideoJsExtensions = () => {
 
   class UniversalFullscreenToggle extends FullscreenToggle {
     handleClick() {
-      void toggleFullscreen(this.player(), device.isIOS)
+      void toggleNativeFullscreen(this.player())
     }
 
     constructor(player: Player, options?: videojs.ButtonOptions) {
@@ -219,7 +125,7 @@ export const registerVideoJsExtensions = () => {
     }
 
     buildCSSClass() {
-      return `vjs-universal-fullscreen-control ${super.buildCSSClass()}`
+      return `vjs-fullscreen-control vjs-universal-fullscreen-control ${super.buildCSSClass()}`
     }
   }
 
@@ -243,7 +149,17 @@ export const registerVideoJsExtensions = () => {
   }
 }
 
-export const getControlBarChildren = () => {
+export const getControlBarChildren = (isMobile: boolean) => {
+  if (isMobile) {
+    return [
+      "playToggle",
+      "currentTimeDisplay",
+      "progressControl",
+      "durationDisplay",
+      "UniversalFullscreenToggle",
+    ]
+  }
+
   return [
     "playToggle",
     "volumePanel",
