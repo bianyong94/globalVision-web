@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
-import { Loader2, Search } from "lucide-react"
+import { Loader2, RefreshCw, Search } from "lucide-react"
 import SEO from "../components/SEO"
 import {
   fetchAppConfig,
@@ -12,6 +12,7 @@ import { getProxyUrl } from "../utils/common"
 import { AppScreenFilterGroup, MovieListItem } from "../types"
 
 const PAGE_SIZE = 12
+const HOME_STATE_KEY = "globalVision.home.v2"
 
 const SORT_OPTIONS = [
   { label: "最新", value: "by_time" },
@@ -31,6 +32,61 @@ const DEFAULT_FILTERS: TopicFilters = {
   class: "",
   area: "",
   year: "",
+}
+
+type HomeState = {
+  activeTopicId: number
+  topicFilters: TopicFilters
+  currentSlide: number
+  scrollY: number
+}
+
+const DEFAULT_HOME_STATE: HomeState = {
+  activeTopicId: 0,
+  topicFilters: DEFAULT_FILTERS,
+  currentSlide: 0,
+  scrollY: 0,
+}
+
+const readHomeState = (): HomeState => {
+  try {
+    const raw = sessionStorage.getItem(HOME_STATE_KEY)
+    if (!raw) return DEFAULT_HOME_STATE
+
+    const parsed = JSON.parse(raw) as Partial<HomeState>
+    return {
+      activeTopicId:
+        typeof parsed.activeTopicId === "number" ? parsed.activeTopicId : 0,
+      topicFilters: {
+        sort: parsed.topicFilters?.sort || DEFAULT_FILTERS.sort,
+        class: parsed.topicFilters?.class || "",
+        area: parsed.topicFilters?.area || "",
+        year: parsed.topicFilters?.year || "",
+      },
+      currentSlide:
+        typeof parsed.currentSlide === "number" ? parsed.currentSlide : 0,
+      scrollY: typeof parsed.scrollY === "number" ? parsed.scrollY : 0,
+    }
+  } catch {
+    return DEFAULT_HOME_STATE
+  }
+}
+
+const writeHomeState = (next: Partial<HomeState>) => {
+  try {
+    const current = readHomeState()
+    sessionStorage.setItem(
+      HOME_STATE_KEY,
+      JSON.stringify({
+        activeTopicId: next.activeTopicId ?? current.activeTopicId,
+        topicFilters: next.topicFilters ?? current.topicFilters,
+        currentSlide: next.currentSlide ?? current.currentSlide,
+        scrollY: next.scrollY ?? current.scrollY,
+      } satisfies HomeState),
+    )
+  } catch {
+    // ignore storage failures
+  }
 }
 
 const FilterRow = ({
@@ -201,29 +257,74 @@ const MovieGridCard = ({
 
 const Home = () => {
   const navigate = useNavigate()
-  const [activeTopicId, setActiveTopicId] = useState<number>(0)
+  const restoredHomeState = useMemo(readHomeState, [])
+  const [activeTopicId, setActiveTopicId] = useState<number>(
+    restoredHomeState.activeTopicId,
+  )
   const [topicFilters, setTopicFilters] =
-    useState<TopicFilters>(DEFAULT_FILTERS)
-  const [currentSlide, setCurrentSlide] = useState(0)
+    useState<TopicFilters>(restoredHomeState.topicFilters)
+  const [currentSlide, setCurrentSlide] = useState(
+    restoredHomeState.currentSlide,
+  )
   const carouselRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
+  const hasMountedRef = useRef(false)
+  const scrollSaveTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [activeTopicId])
+    writeHomeState({ activeTopicId, topicFilters, currentSlide })
+  }, [activeTopicId, currentSlide, topicFilters])
+
+  useEffect(() => {
+    const targetY = readHomeState().scrollY
+    if (targetY > 0) {
+      const timer = window.setTimeout(() => {
+        window.scrollTo(0, targetY)
+      }, 0)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [])
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (scrollSaveTimerRef.current != null) {
+        window.clearTimeout(scrollSaveTimerRef.current)
+      }
+
+      scrollSaveTimerRef.current = window.setTimeout(() => {
+        writeHomeState({ scrollY: window.scrollY })
+      }, 120)
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener("scroll", handleScroll)
+      if (scrollSaveTimerRef.current != null) {
+        window.clearTimeout(scrollSaveTimerRef.current)
+      }
+      writeHomeState({ scrollY: window.scrollY })
+    }
+  }, [])
 
   const configQuery = useQuery({
     queryKey: ["app-config"],
     queryFn: fetchAppConfig,
     staleTime: 1000 * 60 * 10,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const homeQuery = useQuery({
     queryKey: ["home-data"],
     queryFn: fetchHomeData,
     staleTime: 1000 * 60 * 5,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const topTabs = configQuery.data?.index_top_nav || []
@@ -272,6 +373,9 @@ const Home = () => {
       lastPage.hasMore ? lastPage.page + 1 : undefined,
     enabled: activeTopicId > 0,
     staleTime: 1000 * 60 * 5,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const banners = homeQuery.data?.banners || []
@@ -280,6 +384,11 @@ const Home = () => {
     topicListQuery.data?.pages.flatMap((page) => page.list) || []
 
   useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true
+      return
+    }
+
     setTopicFilters(DEFAULT_FILTERS)
   }, [activeTopicId])
 
@@ -384,6 +493,14 @@ const Home = () => {
   const showInitialLoading = homeQuery.isLoading && !homeQuery.data
   const showHomeError = homeQuery.isError && !homeQuery.data
 
+  const handleRefresh = async () => {
+    await Promise.all([
+      configQuery.refetch(),
+      homeQuery.refetch(),
+      activeTopicId > 0 ? topicListQuery.refetch() : Promise.resolve(),
+    ])
+  }
+
   return (
     <div className="min-h-screen w-full overflow-x-hidden no-scrollbar bg-[radial-gradient(circle_at_top,_rgba(132,204,22,0.05),_transparent_40%),linear-gradient(180deg,#0d1121_0%,#08090f_30%,#08090f_100%)] pb-28 text-white antialiased">
       <SEO
@@ -396,12 +513,30 @@ const Home = () => {
         className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-[#08090f]/90 backdrop-blur-xl shadow-lg shadow-black/20"
       >
         <div className="mx-auto max-w-6xl px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
-          <div
-            onClick={() => navigate("/search")}
-            className="flex h-11 items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 text-sm text-white/40 transition active:scale-[0.98] hover:border-lime-400/30 hover:bg-white/10 cursor-pointer"
-          >
-            <Search size={15} className="text-white/40" />
-            <span>搜索影片、剧集、演员</span>
+          <div className="flex items-center gap-2">
+            <div
+              onClick={() => navigate("/search")}
+              className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 text-sm text-white/40 transition active:scale-[0.98] hover:border-lime-400/30 hover:bg-white/10 cursor-pointer"
+            >
+              <Search size={15} className="text-white/40" />
+              <span className="truncate">搜索影片、剧集、演员</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/60 transition hover:border-lime-400/30 hover:bg-white/10 hover:text-lime-300 active:scale-[0.98]"
+              aria-label="刷新首页"
+            >
+              <RefreshCw
+                size={15}
+                className={
+                  homeQuery.isFetching || configQuery.isFetching
+                    ? "animate-spin"
+                    : ""
+                }
+              />
+            </button>
           </div>
 
           <div className="mt-4 flex gap-2 overflow-x-auto pb-3 no-scrollbar scroll-smooth">

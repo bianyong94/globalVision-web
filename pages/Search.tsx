@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   ChevronDown,
+  X,
   Loader2,
   RefreshCw,
   Search as SearchIcon,
@@ -29,6 +30,7 @@ const getSearchWord = (item: { word?: string; name?: string }) =>
 const Search = () => {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const inputRef = React.useRef<HTMLInputElement>(null)
 
   const restoredState = useMemo(() => {
     try {
@@ -110,6 +112,13 @@ const Search = () => {
     setKeyword(value)
   }
 
+  const clearKeyword = () => {
+    setKeyword("")
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus()
+    })
+  }
+
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-[radial-gradient(circle_at_top_left,_rgba(132,204,22,0.15),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.12),_transparent_40%),linear-gradient(180deg,#0a0d1a_0%,#05070a_40%,#05070a_100%)] pb-28 text-white antialiased">
       <SEO title="搜索" description="搜索影片、剧集、演员和热门关键词。" />
@@ -131,11 +140,22 @@ const Search = () => {
                 className="text-white/40 transition-colors duration-300"
               />
               <input
+                ref={inputRef}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder="键入影片、演员、关键词..."
                 className="w-full bg-transparent text-sm outline-none placeholder:text-white/20 text-white"
               />
+              {keyword.trim() ? (
+                <button
+                  type="button"
+                  onClick={clearKeyword}
+                  aria-label="清除搜索词"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 p-1.5 text-white/45 transition hover:border-white/20 hover:bg-white/10 hover:text-white active:scale-95"
+                >
+                  <X size={14} />
+                </button>
+              ) : null}
               {keyword.trim() ? (
                 <button
                   type="submit"
