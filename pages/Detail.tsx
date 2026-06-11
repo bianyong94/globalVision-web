@@ -44,7 +44,6 @@ const Detail = () => {
   const [resolvedPlayUrl, setResolvedPlayUrl] = useState("")
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [playbackError, setPlaybackError] = useState("")
-  const [failedSourceCodes, setFailedSourceCodes] = useState<string[]>([])
   const manualSourceSelectionRef = useRef(false)
 
   const detailQuery = useQuery({
@@ -158,7 +157,6 @@ const Detail = () => {
     setActiveSourceCode(candidate.sourceCode)
     setActiveEpisodeIndex(candidate.episodeIndex)
     setResolvedPlayUrl(candidate.resolvedPlayUrl)
-    setFailedSourceCodes([])
     setPlaybackError("")
   }, [
     detail?.id,
@@ -208,56 +206,13 @@ const Detail = () => {
   const episodes = episodesQuery.data || []
   const activeEpisode = episodes[activeEpisodeIndex]
 
-  const handlePlayerError = useCallback(async () => {
-    if (!detail?.play_from?.length || !detail?.id) {
+  const handlePlayerError = useCallback(() => {
+    if (!detail?.play_from?.length) {
       setPlaybackError("当前播放源不可用")
       return
     }
-
-    const currentSourceIndex = Math.max(
-      detail.play_from.findIndex(
-        (source) => source.code === activeSource?.code,
-      ),
-      0,
-    )
-    const orderedSources = [
-      ...detail.play_from.slice(currentSourceIndex + 1),
-      ...detail.play_from.slice(0, currentSourceIndex),
-    ].filter((source) => !failedSourceCodes.includes(source.code))
-
-    for (const source of orderedSources) {
-      const sourceEpisodes =
-        source.list && source.list.length > 0
-          ? source.list
-          : await fetchMovieEpisodes(detail.id, source.code).catch(() => [])
-
-      if (sourceEpisodes.length === 0) {
-        continue
-      }
-
-      const candidate = await resolveEpisodeUrl(sourceEpisodes[0])
-      if (!candidate) {
-        setFailedSourceCodes((prev) =>
-          prev.includes(source.code) ? prev : [...prev, source.code],
-        )
-        continue
-      }
-
-      setActiveSourceCode(source.code)
-      setActiveEpisodeIndex(0)
-      setResolvedPlayUrl(candidate)
-      setPlaybackError("")
-      return
-    }
-
-    setPlaybackError("当前线路播放失败，已自动尝试其它线路")
-  }, [
-    activeSource?.code,
-    detail?.id,
-    detail?.play_from,
-    failedSourceCodes,
-    resolveEpisodeUrl,
-  ])
+    setPlaybackError("当前线路播放失败，请手动切换其它线路")
+  }, [detail?.play_from])
 
   useEffect(() => {
     let cancelled = false
@@ -273,7 +228,7 @@ const Detail = () => {
         return
       }
 
-      void handlePlayerError()
+      handlePlayerError()
     }
 
     run()
@@ -393,7 +348,7 @@ const Detail = () => {
                   url={playerUrl}
                   poster={detail.cover}
                   onError={() => {
-                    void handlePlayerError()
+                    handlePlayerError()
                   }}
                 />
               ) : (
@@ -466,7 +421,6 @@ const Detail = () => {
                     manualSourceSelectionRef.current = true
                     setActiveSourceCode(source.code)
                     setActiveEpisodeIndex(0)
-                    setFailedSourceCodes([])
                     setResolvedPlayUrl("")
                     setPlaybackError("")
                   }}
