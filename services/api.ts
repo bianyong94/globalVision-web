@@ -835,6 +835,7 @@ export const fetchSearchLatelyWords = async (): Promise<SearchLatelyWord[]> => {
 export const fetchSearchResults = async (params: {
   keyword: string
   page?: number
+  pageSize?: number
   sort?: string
   type_id?: number
   res_type?: "by_movie_name" | "by_member_name" | "by_actor_name"

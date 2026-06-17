@@ -21,7 +21,7 @@ import {
 import { getProxyUrl } from "../utils/common"
 import { MovieListItem } from "../types"
 
-const PAGE_SIZE = 12
+const PAGE_SIZE = 20
 const STORAGE_KEY = "globalVision.search.v3"
 
 const getSearchWord = (item: { word?: string; name?: string }) =>
@@ -31,6 +31,7 @@ const Search = () => {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const loadMoreRef = React.useRef<HTMLDivElement>(null)
 
   const restoredState = useMemo(() => {
     try {
@@ -76,6 +77,7 @@ const Search = () => {
       const result = await fetchSearchResults({
         keyword: deferredKeyword,
         page,
+        pageSize: PAGE_SIZE,
         res_type: "by_movie_name",
       })
       return {
@@ -90,6 +92,8 @@ const Search = () => {
     staleTime: 1000 * 60 * 5,
   })
 
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = listQuery
+
   useEffect(() => {
     const state = { keyword }
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
@@ -103,6 +107,25 @@ const Search = () => {
   const suggestions = autocompleteQuery.data || []
   const hotWords = rankingQuery.data || []
   const recentWords = latelyQuery.data || []
+
+  useEffect(() => {
+    if (!hasKeyword) return
+
+    const el = loadMoreRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1, rootMargin: "240px" },
+    )
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [fetchNextPage, hasKeyword, hasNextPage, isFetchingNextPage, results.length])
 
   const openDetail = (item: MovieListItem) => {
     navigate(`/detail/${item.id}`)
@@ -366,13 +389,13 @@ const Search = () => {
                     ))}
                   </div>
 
-                  <div className="py-12 text-center w-full">
-                    {listQuery.hasNextPage ? (
+                  <div ref={loadMoreRef} className="py-12 text-center w-full">
+                    {hasNextPage ? (
                       <button
-                        onClick={() => listQuery.fetchNextPage()}
+                        onClick={() => fetchNextPage()}
                         className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-6 py-2.5 text-xs font-bold text-white/80 hover:bg-white/10 hover:text-white active:scale-95 transition-all shadow-sm"
                       >
-                        {listQuery.isFetchingNextPage ? (
+                        {isFetchingNextPage ? (
                           <Loader2
                             size={13}
                             className="animate-spin text-lime-400"
