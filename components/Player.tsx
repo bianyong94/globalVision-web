@@ -51,8 +51,9 @@ const Player: React.FC<PlayerProps> = ({
       if (stallTimerRef.current) return
       stallTimerRef.current = window.setTimeout(() => {
         stallTimerRef.current = null
+        if (video.paused || video.ended) return
         callbacksRef.current.onError?.()
-      }, 25000)
+      }, 30000)
     }
 
     const handleError = () => {
@@ -123,7 +124,7 @@ const Player: React.FC<PlayerProps> = ({
         className="gv-native-video"
         controls
         playsInline
-        preload="metadata"
+        preload="auto"
         poster={poster || undefined}
         crossOrigin="anonymous"
         controlsList="nodownload noremoteplayback"

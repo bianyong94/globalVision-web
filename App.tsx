@@ -3,7 +3,7 @@ import {
   HashRouter as Router,
   Routes,
   Route,
-  Outlet,
+  useLocation,
 } from "react-router-dom"
 import { Toaster } from "react-hot-toast"
 import BottomNav from "./components/BottomNav"
@@ -12,11 +12,33 @@ import Search from "./pages/Search"
 import Detail from "./pages/Detail"
 import Profile from "./pages/Profile"
 
-const MainLayout = () => {
+const TAB_PATHS = ["/", "/search", "/profile"] as const
+
+const KeepAliveLayout = () => {
+  const location = useLocation()
+  const isTabPage = TAB_PATHS.includes(location.pathname as any)
+
   return (
     <div className="min-h-screen bg-[#08090f] text-white">
-      <Outlet />
-      <BottomNav />
+      <div
+        className="fixed inset-0 overflow-y-auto"
+        style={{ visibility: isTabPage && location.pathname === "/" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/" ? 1 : 0 }}
+      >
+        <Home />
+      </div>
+      <div
+        className="fixed inset-0 overflow-y-auto"
+        style={{ visibility: isTabPage && location.pathname === "/search" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/search" ? 1 : 0 }}
+      >
+        <Search />
+      </div>
+      <div
+        className="fixed inset-0 overflow-y-auto"
+        style={{ visibility: isTabPage && location.pathname === "/profile" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/profile" ? 1 : 0 }}
+      >
+        <Profile />
+      </div>
+      {isTabPage && <BottomNav />}
     </div>
   )
 }
@@ -40,12 +62,8 @@ const App = () => {
 
       <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
-          <Route element={<MainLayout />}>
-            <Route path="/" element={<Home />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/profile" element={<Profile />} />
-          </Route>
           <Route path="/detail/:id" element={<Detail />} />
+          <Route path="*" element={<KeepAliveLayout />} />
         </Routes>
       </Router>
     </>

@@ -302,50 +302,51 @@ const Home = () => {
   const carouselRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLElement | null>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
   const hasMountedRef = useRef(false)
-  const scrollSaveTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     writeHomeState({ activeTopicId, topicFilters, currentSlide })
   }, [activeTopicId, currentSlide, topicFilters])
 
   useEffect(() => {
+    const container = headerRef.current?.closest(".overflow-y-auto") as HTMLElement | null
+    scrollContainerRef.current = container
+
     const targetY = readHomeState().scrollY
-    if (targetY > 0) {
-      const timer = window.setTimeout(() => {
-        window.scrollTo(0, targetY)
+    if (targetY > 0 && container) {
+      window.setTimeout(() => {
+        container.scrollTop = targetY
       }, 0)
-      return () => window.clearTimeout(timer)
     }
-    return undefined
   }, [])
 
   useEffect(() => {
-    const handleScroll = () => {
-      if (scrollSaveTimerRef.current != null) {
-        window.clearTimeout(scrollSaveTimerRef.current)
-      }
+    const container = scrollContainerRef.current
+    if (!container) return
 
-      scrollSaveTimerRef.current = window.setTimeout(() => {
-        writeHomeState({ scrollY: window.scrollY })
-      }, 120)
+    let timer: number | null = null
+    const handleScroll = () => {
+      if (timer != null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        writeHomeState({ scrollY: container.scrollTop })
+      }, 200)
     }
 
-    window.addEventListener("scroll", handleScroll, { passive: true })
+    container.addEventListener("scroll", handleScroll, { passive: true })
     return () => {
-      window.removeEventListener("scroll", handleScroll)
-      if (scrollSaveTimerRef.current != null) {
-        window.clearTimeout(scrollSaveTimerRef.current)
-      }
-      writeHomeState({ scrollY: window.scrollY })
+      container.removeEventListener("scroll", handleScroll)
+      if (timer != null) window.clearTimeout(timer)
+      writeHomeState({ scrollY: container?.scrollTop || 0 })
     }
   }, [])
 
   const configQuery = useQuery({
     queryKey: ["app-config"],
     queryFn: fetchAppConfig,
-    staleTime: 1000 * 60 * 10,
+    staleTime: Infinity,
+    gcTime: Infinity,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -354,7 +355,8 @@ const Home = () => {
   const homeQuery = useQuery({
     queryKey: ["home-data"],
     queryFn: fetchHomeData,
-    staleTime: 1000 * 60 * 5,
+    staleTime: Infinity,
+    gcTime: Infinity,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -408,7 +410,8 @@ const Home = () => {
     getNextPageParam: (lastPage) =>
       lastPage.hasMore ? lastPage.page + 1 : undefined,
     enabled: activeTopicId > 0,
-    staleTime: 1000 * 60 * 5,
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 30,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

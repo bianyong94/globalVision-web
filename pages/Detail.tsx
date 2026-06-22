@@ -43,7 +43,6 @@ const Detail = () => {
   const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(0)
   const [resolvedPlayUrl, setResolvedPlayUrl] = useState("")
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
-  const [playbackError, setPlaybackError] = useState("")
   const manualSourceSelectionRef = useRef(false)
 
   const detailQuery = useQuery({
@@ -157,7 +156,6 @@ const Detail = () => {
     setActiveSourceCode(candidate.sourceCode)
     setActiveEpisodeIndex(candidate.episodeIndex)
     setResolvedPlayUrl(candidate.resolvedPlayUrl)
-    setPlaybackError("")
   }, [
     detail?.id,
     playbackDiscoveryQuery.data,
@@ -189,30 +187,33 @@ const Detail = () => {
     queryFn: () => fetchMovieComments(detail?.id || ""),
     enabled: !!detail?.id,
     staleTime: 1000 * 30,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   })
 
   const relatedQuery = useQuery({
-    queryKey: ["movie-related", detail?.type_id],
+    queryKey: ["movie-related", detail?.type_id ?? 0],
     queryFn: () =>
       fetchScreenMovies({
-        type_id: detail?.type_id || 0,
+        type_id: detail?.type_id ?? 1,
         page: 1,
         pageSize: 12,
       }),
-    enabled: !!detail?.type_id,
+    enabled: !!detail?.id,
     staleTime: 1000 * 60 * 5,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   })
 
   const episodes = episodesQuery.data || []
   const activeEpisode = episodes[activeEpisodeIndex]
 
-  const handlePlayerError = useCallback(() => {
-    if (!detail?.play_from?.length) {
-      setPlaybackError("当前播放源不可用")
-      return
+  const handleEpisodeEnded = useCallback(() => {
+    if (episodes.length > 1 && activeEpisodeIndex < episodes.length - 1) {
+      setActiveEpisodeIndex((prev) => prev + 1)
+      setResolvedPlayUrl("")
     }
-    setPlaybackError("当前线路播放失败，请手动切换其它线路")
-  }, [detail?.play_from])
+  }, [episodes.length, activeEpisodeIndex])
 
   useEffect(() => {
     let cancelled = false
@@ -224,11 +225,8 @@ const Detail = () => {
 
       if (resolved) {
         setResolvedPlayUrl(resolved)
-        setPlaybackError("")
         return
       }
-
-      handlePlayerError()
     }
 
     run()
@@ -240,7 +238,6 @@ const Detail = () => {
     activeEpisode?.from_code,
     activeEpisode?.play_url,
     detail,
-    handlePlayerError,
     resolveEpisodeUrl,
   ])
 
@@ -347,9 +344,7 @@ const Detail = () => {
                 <Player
                   url={playerUrl}
                   poster={detail.cover}
-                  onError={() => {
-                    handlePlayerError()
-                  }}
+                  onEnded={handleEpisodeEnded}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center">
@@ -357,13 +352,6 @@ const Detail = () => {
                 </div>
               )}
             </div>
-            {playbackError && (
-              <div className="mx-auto max-w-6xl px-4">
-                <div className="border-t border-white/5 bg-red-950/20 px-4 py-2.5 text-xs text-red-300 font-medium tracking-wide break-words w-full box-border">
-                  {playbackError}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </section>
@@ -422,7 +410,6 @@ const Detail = () => {
                     setActiveSourceCode(source.code)
                     setActiveEpisodeIndex(0)
                     setResolvedPlayUrl("")
-                    setPlaybackError("")
                   }}
                   className={`shrink-0 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
                     activeSourceCode === source.code
@@ -453,7 +440,6 @@ const Detail = () => {
                       manualSourceSelectionRef.current = true
                       setActiveEpisodeIndex(index)
                       setResolvedPlayUrl("")
-                      setPlaybackError("")
                     }}
                     className={`rounded-lg py-2.5 text-xs font-medium transition active:scale-95 px-1 truncate ${
                       activeEpisodeIndex === index
