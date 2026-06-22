@@ -15,6 +15,7 @@ const PAGE_SIZE = 12
 const HOME_STATE_KEY = "globalVision.home.v2"
 
 const SORT_OPTIONS = [
+  { label: "综合", value: "by_default" },
   { label: "最新", value: "by_time" },
   { label: "最热", value: "by_hits" },
   { label: "评分", value: "by_score" },
@@ -28,7 +29,7 @@ type TopicFilters = {
 }
 
 const DEFAULT_FILTERS: TopicFilters = {
-  sort: "by_time",
+  sort: "by_default",
   class: "",
   area: "",
   year: "",
@@ -143,7 +144,7 @@ const TopicFilterPanel = ({
 
   return (
     <section className="space-y-2.5 border-t border-white/5 py-3">
-      <FilterRow label="综合">
+      <FilterRow label="排序">
         {SORT_OPTIONS.map((option) => (
           <FilterChip
             key={option.value}
@@ -218,42 +219,74 @@ const TopicFilterPanel = ({
   )
 }
 
+const getCardTags = (item: {
+  label?: string
+  score?: string
+  year?: string
+  type_name?: string
+}) => {
+  const tags = [
+    item.label?.trim(),
+    item.score ? `${item.score}分` : undefined,
+    item.year?.trim(),
+    item.type_name?.trim(),
+  ].filter((value): value is string => Boolean(value))
+
+  return [...new Set(tags)].slice(0, 3)
+}
+
 const MovieGridCard = ({
   item,
   onOpen,
 }: {
   item: MovieListItem
   onOpen: (item: MovieListItem) => void
-}) => (
-  <button
-    onClick={() => onOpen(item)}
-    className="group text-left focus:outline-none"
-  >
-    <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
-      <img
-        src={getProxyUrl(item.cover)}
-        alt={item.name}
-        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-        loading="lazy"
-      />
-      {(item.dynamic || item.label) && (
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-4 text-right">
-          <span className="text-[10px] text-lime-300 font-medium line-clamp-1">
-            {item.dynamic || item.label}
+}) => {
+  const cardTags = getCardTags(item)
+
+  return (
+    <button
+      onClick={() => onOpen(item)}
+      className="group text-left focus:outline-none"
+    >
+      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
+        <img
+          src={getProxyUrl(item.cover)}
+          alt={item.name}
+          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+          loading="lazy"
+        />
+        {cardTags.length > 0 && (
+          <div className="absolute left-1.5 top-1.5 flex max-w-[85%] flex-wrap gap-1">
+            {cardTags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded bg-black/65 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 backdrop-blur"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+        {(item.dynamic || item.label) && (
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-4 text-right">
+            <span className="text-[10px] text-lime-300 font-medium line-clamp-1">
+              {item.dynamic || item.label}
+            </span>
+          </div>
+        )}
+        {item.collect_count != null && item.collect_count > 0 && (
+          <span className="absolute top-1.5 right-1.5 rounded bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold text-black">
+            多人收藏
           </span>
-        </div>
-      )}
-      {item.collect_count != null && item.collect_count > 0 && (
-        <span className="absolute top-1.5 right-1.5 rounded bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold text-black">
-          多人收藏
-        </span>
-      )}
-    </div>
-    <h3 className="mt-1.5 line-clamp-1 text-xs sm:text-sm font-semibold text-white/80 group-hover:text-lime-400 transition-colors">
-      {item.name}
-    </h3>
-  </button>
-)
+        )}
+      </div>
+      <h3 className="mt-1.5 line-clamp-1 text-xs sm:text-sm font-semibold text-white/80 group-hover:text-lime-400 transition-colors">
+        {item.name}
+      </h3>
+    </button>
+  )
+}
 
 const Home = () => {
   const navigate = useNavigate()
@@ -366,7 +399,10 @@ const Home = () => {
       return {
         page,
         list: result.list,
-        hasMore: result.list.length >= PAGE_SIZE,
+        total: result.total,
+        hasMore:
+          result.list.length > 0 &&
+          page * PAGE_SIZE < Math.max(result.total, page * PAGE_SIZE),
       }
     },
     getNextPageParam: (lastPage) =>
@@ -411,17 +447,19 @@ const Home = () => {
     if (id) navigate(`/detail/${id}`)
   }
 
-  const filteredSections = useMemo(() => {
-    if (sections.length <= 1) return sections
-    return sections.slice(1)
-  }, [sections])
-
   const carouselItems = useMemo(() => {
+    if (banners.length > 0) return banners
     if (sections.length > 0 && sections[0]?.data) {
       return sections[0].data
     }
-    return banners
+    return []
   }, [sections, banners])
+
+  const filteredSections = useMemo(() => {
+    if (banners.length > 0) return sections
+    if (sections.length <= 1) return sections
+    return sections.slice(1)
+  }, [banners.length, sections])
 
   useEffect(() => {
     if (activeTopicId !== 0 || carouselItems.length <= 1) return
@@ -676,32 +714,48 @@ const Home = () => {
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-                    {(section.data || []).slice(0, 12).map((item: any) => (
-                      <button
-                        key={item.id}
-                        onClick={() => handleOpen(item)}
-                        className="group text-left focus:outline-none"
-                      >
-                        <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
-                          <img
-                            src={getProxyUrl(item.poster)}
-                            alt={item.title || item.name}
-                            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                            loading="lazy"
-                          />
-                          {(item.remarks || item.dynamic || item.label) && (
-                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-4 text-right">
-                              <span className="text-[10px] text-lime-300 font-medium line-clamp-1">
-                                {item.remarks || item.dynamic || item.label}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                        <h4 className="mt-1.5 line-clamp-1 text-xs sm:text-sm font-semibold text-white/80 group-hover:text-lime-400 transition-colors">
-                          {item.title || item.name}
-                        </h4>
-                      </button>
-                    ))}
+                    {(section.data || []).slice(0, 12).map((item: any) => {
+                      const cardTags = getCardTags(item)
+
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => handleOpen(item)}
+                          className="group text-left focus:outline-none"
+                        >
+                          <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
+                            <img
+                              src={getProxyUrl(item.poster)}
+                              alt={item.title || item.name}
+                              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                              loading="lazy"
+                            />
+                            {cardTags.length > 0 && (
+                              <div className="absolute left-1.5 top-1.5 flex max-w-[85%] flex-wrap gap-1">
+                                {cardTags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="rounded bg-black/65 px-1.5 py-0.5 text-[9px] font-semibold text-white/90 backdrop-blur"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {(item.remarks || item.dynamic || item.label) && (
+                              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-2 pb-1.5 pt-4 text-right">
+                                <span className="text-[10px] text-lime-300 font-medium line-clamp-1">
+                                  {item.remarks || item.dynamic || item.label}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <h4 className="mt-1.5 line-clamp-1 text-xs sm:text-sm font-semibold text-white/80 group-hover:text-lime-400 transition-colors">
+                            {item.title || item.name}
+                          </h4>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               ))}

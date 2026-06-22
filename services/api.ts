@@ -95,6 +95,26 @@ const hexToBytes = (hex: string) => {
 const sanitizeList = <T extends Record<string, any>>(items: T[]) =>
   (Array.isArray(items) ? items : []).filter(Boolean)
 
+const FALLBACK_TOP_NAV: AppTopNav[] = [
+  { id: 1, name: "电影" },
+  { id: 2, name: "剧集" },
+  { id: 3, name: "综艺" },
+  { id: 4, name: "动漫" },
+  { id: 36, name: "短剧" },
+  { id: 26, name: "福利" },
+]
+
+const FALLBACK_SCREEN_FILTERS: AppScreenFilterGroup[] = FALLBACK_TOP_NAV.map(
+  (item) => ({
+    id: item.id,
+    name: item.name,
+    class: [],
+    area: [],
+    year: [],
+    sort: ["by_default", "by_time", "by_hits", "by_score"],
+  }),
+)
+
 const normalizeImage = (value?: string) => {
   if (!value) return ""
   if (value.startsWith("//")) return `https:${value}`
@@ -388,6 +408,11 @@ const decryptResponseText = async (response: Response) => {
   const encryptedText = trimmed.replace(/^"|"$/g, "")
 
   try {
+    const normalized = encryptedText.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = normalized.padEnd(
+      Math.ceil(normalized.length / 4) * 4,
+      "=",
+    )
     const decipher = forge.cipher.createDecipher(
       "AES-CBC",
       forge.util.createBuffer(AES_KEY),
@@ -397,7 +422,7 @@ const decryptResponseText = async (response: Response) => {
     })
     decipher.update(
       forge.util.createBuffer(
-        forge.util.decode64(encryptedText.replace(/-/g, "+").replace(/_/g, "/")),
+        forge.util.decode64(padded),
       ),
     )
     if (!decipher.finish()) {
@@ -617,26 +642,40 @@ const mapDetail = (item: any): MovieDetailItem | null => {
   }
 }
 
-const normalizeConfig = (payload: any): AppConfig => ({
-  index_top_nav: Array.isArray(payload?.index_top_nav)
-    ? payload.index_top_nav.map((item: any) => ({
-        id: Number(item?.id || 0),
-        name: String(item?.name || ""),
-      }))
-    : [],
-  movie_screen: {
-    filter: Array.isArray(payload?.movie_screen?.filter)
-      ? payload.movie_screen.filter.map((item: any) => ({
+const normalizeConfig = (payload: any): AppConfig => {
+  const indexTopNav = Array.isArray(payload?.index_top_nav)
+    ? payload.index_top_nav
+        .map((item: any) => ({
           id: Number(item?.id || 0),
           name: String(item?.name || ""),
-          class: Array.isArray(item?.class) ? item.class.map(String) : [],
-          area: Array.isArray(item?.area) ? item.area.map(String) : [],
-          year: Array.isArray(item?.year) ? item.year.map(String) : [],
-          sort: Array.isArray(item?.sort) ? item.sort.map(String) : undefined,
         }))
-      : [],
-  },
-})
+        .filter((item) => item.id > 0 && item.name)
+    : []
+
+  const filterGroups = Array.isArray(payload?.movie_screen?.filter)
+    ? payload.movie_screen.filter.map((item: any) => ({
+        id: Number(item?.id || 0),
+        name: String(item?.name || ""),
+        class: Array.isArray(item?.class) ? item.class.map(String) : [],
+        area: Array.isArray(item?.area) ? item.area.map(String) : [],
+        year: Array.isArray(item?.year) ? item.year.map(String) : [],
+        sort: Array.isArray(item?.sort)
+          ? item.sort.map(String)
+          : Array.isArray(payload?.movie_screen?.sort)
+            ? payload.movie_screen.sort
+                .map((sort: any) => String(sort?.value || ""))
+                .filter(Boolean)
+            : undefined,
+      }))
+    : []
+
+  return {
+    index_top_nav: indexTopNav.length > 0 ? indexTopNav : FALLBACK_TOP_NAV,
+    movie_screen: {
+      filter: filterGroups.length > 0 ? filterGroups : FALLBACK_SCREEN_FILTERS,
+    },
+  }
+}
 
 const normalizeHome = async (
   config: AppConfig | null,
