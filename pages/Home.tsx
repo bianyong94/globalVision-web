@@ -8,11 +8,11 @@ import {
   fetchHomeData,
   fetchScreenMovies,
 } from "../services/api"
-import { getProxyUrl } from "../utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
 import { AppScreenFilterGroup, MovieListItem } from "../types"
 
 const PAGE_SIZE = 12
-const HOME_STATE_KEY = "globalVision.home.v2"
+const HOME_STATE_KEY = "vastren.home.v2"
 
 const SORT_OPTIONS = [
   { label: "综合", value: "by_default" },
@@ -251,10 +251,12 @@ const MovieGridCard = ({
     >
       <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
         <img
-          src={getProxyUrl(item.cover)}
+          src={getProxyUrl(item.cover, { w: 320, q: 70 })}
           alt={item.name}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
           loading="lazy"
+          decoding="async"
+          onError={createImageFallbackHandler(item.cover)}
         />
         {cardTags.length > 0 && (
           <div className="absolute left-1.5 top-1.5 flex max-w-[85%] flex-wrap gap-1">
@@ -304,7 +306,25 @@ const Home = () => {
   const headerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLElement | null>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
-  const hasMountedRef = useRef(false)
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "auto" })
+    const container = scrollContainerRef.current
+    if (container) container.scrollTop = 0
+    writeHomeState({ scrollY: 0 })
+  }
+
+  const handleTopicChange = (nextTopicId: number) => {
+    setActiveTopicId(nextTopicId)
+    setTopicFilters(DEFAULT_FILTERS)
+    setCurrentSlide(0)
+    scrollToTop()
+  }
+
+  const handleFilterChange = (next: TopicFilters) => {
+    setTopicFilters(next)
+    scrollToTop()
+  }
 
   useEffect(() => {
     writeHomeState({ activeTopicId, topicFilters, currentSlide })
@@ -421,15 +441,6 @@ const Home = () => {
   const sections = homeQuery.data?.sections || []
   const topicItems =
     topicListQuery.data?.pages.flatMap((page) => page.list) || []
-
-  useEffect(() => {
-    if (!hasMountedRef.current) {
-      hasMountedRef.current = true
-      return
-    }
-
-    setTopicFilters(DEFAULT_FILTERS)
-  }, [activeTopicId])
 
   useEffect(() => {
     const el = headerRef.current
@@ -584,7 +595,7 @@ const Home = () => {
             {(tabItems.length > 0 ? tabItems : [{ id: 0, name: "推荐" }]).map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTopicId(tab.id)}
+                onClick={() => handleTopicChange(tab.id)}
                 className={`shrink-0 rounded-full px-4 py-1.5 text-sm transition-all duration-200 ${
                   activeTopicId === tab.id
                     ? "bg-lime-400 text-[#08090f] font-bold shadow-[0_4px_12px_rgba(163,230,53,0.3)]"
@@ -600,7 +611,7 @@ const Home = () => {
             <TopicFilterPanel
               filterGroup={activeFilterGroup}
               filters={topicFilters}
-              onChange={setTopicFilters}
+              onChange={handleFilterChange}
             />
           )}
         </div>
@@ -656,11 +667,16 @@ const Home = () => {
                     className="group relative flex h-full w-full flex-col justify-end text-left focus:outline-none"
                   >
                     <img
-                      src={getProxyUrl(
-                        item.backdrop || item.poster || item.cover,
-                      )}
+                      src={getProxyUrl(item.backdrop || item.poster || item.cover, {
+                        w: 1280,
+                        q: 72,
+                      })}
                       alt={item.title || item.name}
                       className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.01]"
+                      decoding="async"
+                      onError={createImageFallbackHandler(
+                        item.backdrop || item.poster || item.cover,
+                      )}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#08090f] via-[#08090f]/20 to-transparent" />
 
@@ -728,10 +744,12 @@ const Home = () => {
                         >
                           <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md">
                             <img
-                              src={getProxyUrl(item.poster)}
+                              src={getProxyUrl(item.poster, { w: 320, q: 70 })}
                               alt={item.title || item.name}
                               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                               loading="lazy"
+                              decoding="async"
+                              onError={createImageFallbackHandler(item.poster)}
                             />
                             {cardTags.length > 0 && (
                               <div className="absolute left-1.5 top-1.5 flex max-w-[85%] flex-wrap gap-1">

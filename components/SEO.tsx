@@ -9,11 +9,11 @@ interface SeoProps {
   type?: "website" | "video.movie" | "video.tv_show"
 }
 
-const SITE_NAME = "Global Vision"
+const SITE_NAME = "Vastren"
 const DEFAULT_DESC =
-  "Global Vision 是基于目标接口重构的影视前端，聚合推荐、搜索、详情、评论与播放线路。"
+  "Vastren 是基于目标接口重构的影视前端，聚合推荐、搜索、详情、评论与播放线路。"
 const DEFAULT_KEYWORDS = [
-  "Global Vision",
+  "Vastren",
   "影视搜索",
   "在线点播",
   "电影",

@@ -4,7 +4,7 @@ import { VideoItem } from "@/types"
 import { matchLocalResource } from "@/services/api" // 引入刚才写的匹配接口
 import { useNavigate } from "react-router-dom"
 import toast from "react-hot-toast"
-import { getProxyUrl } from "@/utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "@/utils/common"
 
 interface MediaCardProps {
   video: VideoItem
@@ -84,6 +84,9 @@ export const MediaCard = ({ video, layout = "portrait" }: MediaCardProps) => {
           className="w-full h-full object-cover transition-opacity duration-300 group-hover:opacity-80"
           loading="lazy"
           decoding="async"
+          onError={createImageFallbackHandler(
+            layout === "landscape" ? video.backdrop || video.poster : video.poster,
+          )}
         />
 
         {/* 悬停时的遮罩层 */}

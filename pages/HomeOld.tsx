@@ -2,7 +2,7 @@ import React, { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { fetchHomeData } from "../services/api"
-import { getProxyUrl } from "../utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Play,
@@ -134,6 +134,7 @@ const Home = () => {
                       loading={idx === 0 ? "eager" : "lazy"}
                       fetchPriority={idx === 0 ? "high" : "auto"}
                       decoding="async"
+                      onError={createImageFallbackHandler(item.poster)}
                     />
                     {/* 遮罩层：下部渐变黑 + 顶部渐变黑 */}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/40 to-transparent" />
@@ -225,7 +226,7 @@ const Home = () => {
                 <Play size={14} fill="currentColor" />
               </div>
               <span className="text-[10px] tracking-[0.3em] uppercase text-gray-500">
-                Global Vision
+                Vastren
               </span>
             </div>
           </div>
@@ -332,10 +333,12 @@ const VideoCard = ({
         className={`rounded-xl overflow-hidden bg-[#1a1a1a] border border-white/5 relative shadow-lg transition-transform duration-300 group-active:scale-95 ${aspectClass}`}
       >
         <img
-          src={getProxyUrl(item.poster)}
+          src={getProxyUrl(item.poster, { w: 320, q: 70 })}
           className="w-full h-full object-cover opacity-90 transition-opacity group-hover:opacity-100"
           loading="lazy"
           alt={item.title}
+          decoding="async"
+          onError={createImageFallbackHandler(item.poster)}
         />
 
         {/* 左上角角标 (评分或画质) */}

@@ -5,7 +5,7 @@ import { VideoItem } from "@/types"
 import { useNavigate } from "react-router-dom"
 import { matchLocalResource } from "@/services/api"
 import toast from "react-hot-toast"
-import { getProxyUrl } from "@/utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "@/utils/common"
 
 interface HeroSectionProps {
   items: VideoItem[] // 接收数组
@@ -165,6 +165,9 @@ export const HeroSection = ({ items }: HeroSectionProps) => {
             loading="eager"
             fetchPriority="high"
             decoding="async"
+            onError={createImageFallbackHandler(
+              currentItem.backdrop || currentItem.poster,
+            )}
           />
           {/* 渐变遮罩 */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent" />

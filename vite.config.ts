@@ -63,8 +63,8 @@ export default defineConfig(({ mode }) => {
 
         // Manifest 配置 (可选，让应用可以被“添加到主屏幕”)
         manifest: {
-          name: "Global Vision",
-          short_name: "Global Vision",
+          name: "Vastren",
+          short_name: "Vastren",
           description: `A modern video catalog. build:${buildStamp}`,
           theme_color: "#050505",
           icons: [

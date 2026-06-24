@@ -1,4 +1,4 @@
-const STORAGE_KEY = "globalVision.playHistory"
+const STORAGE_KEY = "vastren.playHistory"
 const MAX_ITEMS = 30
 
 export interface PlayHistoryItem {

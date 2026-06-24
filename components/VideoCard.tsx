@@ -2,7 +2,7 @@ import React from "react"
 import { VideoSummary } from "../types"
 import { useNavigate } from "react-router-dom"
 import { Play } from "lucide-react"
-import { getProxyUrl } from "../utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
 
 interface Props {
   video: VideoSummary
@@ -16,12 +16,6 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
       ? `?source=${encodeURIComponent(video.source_ref)}`
       : ""
     navigate(`/detail/${video.id}${sourceQuery}`)
-  }
-
-  const handleImageError = (
-    e: React.SyntheticEvent<HTMLImageElement, Event>,
-  ) => {
-    e.currentTarget.src = "https://picsum.photos/300/450?text=No+Image"
   }
 
   if (layout === "list") {
@@ -40,7 +34,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
                 alt={video.title}
                 loading="lazy"
                 decoding="async"
-                onError={handleImageError}
+                onError={createImageFallbackHandler(video.poster)}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />
@@ -81,7 +75,7 @@ const VideoCard: React.FC<Props> = ({ video, layout = "grid" }) => {
             loading="lazy"
             decoding="async"
             alt={video.title}
-            onError={handleImageError}
+            onError={createImageFallbackHandler(video.poster)}
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />

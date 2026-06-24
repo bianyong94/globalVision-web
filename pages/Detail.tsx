@@ -16,13 +16,15 @@ import {
 import SEO from "../components/SEO"
 import Player from "../components/Player"
 import {
+  fetchAppConfig,
   fetchMovieComments,
   fetchMovieDetail,
   fetchMovieEpisodes,
   fetchScreenMovies,
+  fetchTopicRecommend,
   parseMovieEpisodeUrl,
 } from "../services/api"
-import { getProxyUrl } from "../utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
 import { upsertPlayHistory } from "../utils/history"
 import { MovieEpisodeItem, MovieListItem } from "../types"
 
@@ -60,8 +62,26 @@ const Detail = () => {
     enabled: !!id,
     staleTime: 1000 * 60 * 5,
   })
+  const configQuery = useQuery({
+    queryKey: ["app-config"],
+    queryFn: fetchAppConfig,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
 
   const detail = detailQuery.data
+  const relatedTopicId = useMemo(() => {
+    if (detail?.type_id && detail.type_id > 0) return detail.type_id
+    const typeName = detail?.type_name?.trim()
+    if (!typeName) return 0
+    return (
+      configQuery.data?.index_top_nav.find((item) => item.name === typeName)
+        ?.id || 0
+    )
+  }, [configQuery.data?.index_top_nav, detail?.type_id, detail?.type_name])
   const hasHistoryParams = useRef(!!historySourceCode)
 
   useEffect(() => {
@@ -208,14 +228,34 @@ const Detail = () => {
   })
 
   const relatedQuery = useQuery({
-    queryKey: ["movie-related", detail?.type_id ?? 0],
-    queryFn: () =>
-      fetchScreenMovies({
-        type_id: detail?.type_id ?? 1,
-        page: 1,
-        pageSize: 12,
-      }),
-    enabled: !!detail?.id,
+    queryKey: ["movie-related", relatedTopicId, detail?.id],
+    queryFn: async () => {
+      if (!relatedTopicId) return []
+
+      const [screenResult, topicResult] = await Promise.allSettled([
+        fetchScreenMovies({
+          type_id: relatedTopicId,
+          page: 1,
+          pageSize: 12,
+        }),
+        fetchTopicRecommend(relatedTopicId),
+      ])
+
+      const screenItems =
+        screenResult.status === "fulfilled" ? screenResult.value.list : []
+      const topicItems =
+        topicResult.status === "fulfilled" ? topicResult.value : []
+
+      const merged = [...screenItems, ...topicItems]
+      const uniqueById = new Map<string, MovieListItem>()
+      for (const item of merged) {
+        if (!item?.id || item.id === detail?.id) continue
+        if (!uniqueById.has(item.id)) uniqueById.set(item.id, item)
+      }
+
+      return Array.from(uniqueById.values()).slice(0, 12)
+    },
+    enabled: !!detail?.id && relatedTopicId > 0,
     staleTime: 1000 * 60 * 5,
     retry: 3,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
@@ -298,8 +338,9 @@ const Detail = () => {
     [resolvedPlayUrl],
   )
 
-  const relatedItems =
-    relatedQuery.data?.list?.filter((item) => item.id !== detail?.id) || []
+  const relatedItems = Array.isArray(relatedQuery.data)
+    ? relatedQuery.data.filter((item) => item.id !== detail?.id)
+    : relatedQuery.data?.list?.filter((item) => item.id !== detail?.id) || []
   const comments = commentsQuery.data?.list || []
 
   const safeDescription = useMemo(() => {
@@ -348,9 +389,11 @@ const Detail = () => {
       <section className="shrink-0 border-b border-white/5 bg-[#08090f]/95 backdrop-blur-xl">
         <div className="relative w-full overflow-hidden">
           <img
-            src={getProxyUrl(detail.cover)}
+            src={getProxyUrl(detail.cover, { w: 1280, q: 72 })}
             alt={detail.name}
             className="absolute inset-0 h-full w-full object-cover blur-3xl scale-125 opacity-20 pointer-events-none"
+            decoding="async"
+            onError={createImageFallbackHandler(detail.cover)}
           />
           <div className="absolute inset-0 bg-gradient-to-b from-[#08090f]/10 via-[#08090f]/80 to-[#08090f]" />
 
@@ -390,8 +433,8 @@ const Detail = () => {
             </h1>
           </div>
 
-          <div className="relative z-10 w-full bg-black">
-            <div className="aspect-video w-full bg-[#040508] relative">
+            <div className="relative z-10 w-full bg-black">
+              <div className="aspect-video w-full bg-[#040508] relative">
               {playerUrl ? (
                 <Player
                   url={playerUrl}
@@ -405,9 +448,9 @@ const Detail = () => {
                   <LoaderState />
                 </div>
               )}
+              </div>
             </div>
           </div>
-        </div>
       </section>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
@@ -536,9 +579,11 @@ const Detail = () => {
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <img
-                          src={getProxyUrl(comment.user?.avatar)}
+                          src={getProxyUrl(comment.user?.avatar, { w: 64, q: 70 })}
                           alt={comment.user?.nickname || "用户"}
                           className="h-8 w-8 rounded-full object-cover border border-white/5 bg-[#0a0e18] shrink-0"
+                          decoding="async"
+                          onError={createImageFallbackHandler(comment.user?.avatar)}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-xs font-semibold text-white/80">
@@ -563,17 +608,11 @@ const Detail = () => {
             </div>
 
             <div className="rounded-2xl border border-white/5 bg-white/[0.01] p-4 w-full box-border min-w-0">
-              <div className="mb-4 flex items-center justify-between border-b border-white/5 pb-2">
+              <div className="mb-4 flex items-center border-b border-white/5 pb-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-white/40 uppercase">
                   <ChevronRight size={13} className="text-lime-400" />
                   <span>相关推荐</span>
                 </div>
-                <button
-                  onClick={() => relatedQuery.refetch()}
-                  className="text-[10px] uppercase font-bold text-white/30 tracking-wider hover:text-white/60 transition shrink-0"
-                >
-                  换一换
-                </button>
               </div>
 
               {relatedQuery.isLoading ? (
@@ -581,8 +620,8 @@ const Detail = () => {
                   <RefreshCw className="h-5 w-5 animate-spin text-lime-400" />
                 </div>
               ) : relatedItems.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 w-full">
-                  {relatedItems.slice(0, 6).map((item) => (
+                <div className="grid grid-cols-3 gap-3 w-full">
+                  {relatedItems.map((item) => (
                     <button
                       key={item.id}
                       onClick={() => openRelated(item)}
@@ -590,10 +629,12 @@ const Detail = () => {
                     >
                       <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-sm w-full">
                         <img
-                          src={getProxyUrl(item.cover)}
+                          src={getProxyUrl(item.cover, { w: 320, q: 70 })}
                           alt={item.name}
                           className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                           loading="lazy"
+                          decoding="async"
+                          onError={createImageFallbackHandler(item.cover)}
                         />
                       </div>
                       <h4 className="mt-1.5 truncate text-xs font-semibold text-white/80 group-hover:text-lime-400 transition-colors w-full">

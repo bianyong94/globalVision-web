@@ -10,7 +10,7 @@ import {
   Play,
 } from "lucide-react"
 import { getPlayHistory, clearPlayHistory, PlayHistoryItem } from "../utils/history"
-import { getProxyUrl } from "../utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
 
 const formatTime = (seconds: number) => {
   const h = Math.floor(seconds / 3600)
@@ -169,10 +169,12 @@ const Profile = () => {
                 >
                   <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-[#0c1020]">
                     <img
-                      src={getProxyUrl(item.cover)}
+                      src={getProxyUrl(item.cover, { w: 240, q: 70 })}
                       alt={item.name}
                       className="h-full w-full object-cover"
                       loading="lazy"
+                      decoding="async"
+                      onError={createImageFallbackHandler(item.cover)}
                     />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition">
                       <Play size={16} className="text-white" fill="white" />

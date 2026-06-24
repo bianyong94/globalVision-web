@@ -18,11 +18,11 @@ import {
   fetchSearchRanking,
   fetchSearchResults,
 } from "../services/api"
-import { getProxyUrl } from "../utils/common"
+import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
 import { MovieListItem } from "../types"
 
 const PAGE_SIZE = 20
-const STORAGE_KEY = "globalVision.search.v3"
+const STORAGE_KEY = "vastren.search.v3"
 
 const getSearchWord = (item: { word?: string; name?: string }) =>
   item.word || item.name || ""
@@ -369,10 +369,12 @@ const Search = () => {
                       >
                         <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0c1020] aspect-[2/3] shadow-md w-full">
                           <img
-                            src={getProxyUrl(item.cover)}
+                            src={getProxyUrl(item.cover, { w: 320, q: 70 })}
                             alt={item.name}
                             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                             loading="lazy"
+                            decoding="async"
+                            onError={createImageFallbackHandler(item.cover)}
                           />
                           {(item.dynamic || item.label) && (
                             <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-2 pb-2 pt-5 text-right">
