@@ -105,7 +105,7 @@ const InstallPwaPrompt = () => {
 
           <div className="flex-1">
             <h3 className="text-white font-bold text-sm mb-1">
-              添加到主屏幕-获得原生app的体验
+              添加到主屏幕-获得原生App的体验
             </h3>
             <p className="text-gray-400 text-xs leading-relaxed mb-3">
               {isIOS
