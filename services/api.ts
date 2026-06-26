@@ -13,6 +13,7 @@ import {
   SearchAutocompleteItem,
   SearchLatelyWord,
   SearchMoviesResult,
+  SearchRankingGroup,
   SearchRankingItem,
   VideoDetail,
   VideoSource,
@@ -848,17 +849,33 @@ export const fetchSearchAutocomplete = async (
   }))
 }
 
-export const fetchSearchRanking = async (): Promise<SearchRankingItem[]> => {
+export const fetchSearchRanking = async (): Promise<SearchRankingGroup[]> => {
   const response = await request<any>(`/movie/search_ranking`)
   const groups = sanitizeList(Array.isArray(response?.data) ? response.data : [])
-  const firstGroup = groups.find((item: any) => Array.isArray(item?.list)) || groups[0]
-  const list = sanitizeList(Array.isArray(firstGroup?.list) ? firstGroup.list : [])
-  return list.map((item: any) => ({
-    name: String(item?.word || item?.name || ""),
-    word: item?.word != null ? String(item.word) : undefined,
-    hot: item?.hot != null ? Number(item.hot) : undefined,
-    safe: true,
-  }))
+  return groups
+    .map((group: any, index: number) => {
+      const list = sanitizeList(Array.isArray(group?.list) ? group.list : [])
+      const name = String(
+        group?.name ||
+          group?.title ||
+          group?.type_name ||
+          group?.category_name ||
+          `热搜分类 ${index + 1}`,
+      ).trim()
+
+      return {
+        name,
+        list: list
+          .map((item: any) => ({
+            name: String(item?.word || item?.name || ""),
+            word: item?.word != null ? String(item.word) : undefined,
+            hot: item?.hot != null ? Number(item.hot) : undefined,
+            safe: true,
+          }))
+          .filter((item: SearchRankingItem) => item.name),
+      }
+    })
+    .filter((group: SearchRankingGroup) => group.list.length > 0)
 }
 
 export const fetchSearchLatelyWords = async (): Promise<SearchLatelyWord[]> => {

@@ -260,6 +260,11 @@ export interface SearchRankingItem {
   safe?: boolean
 }
 
+export interface SearchRankingGroup {
+  name: string
+  list: SearchRankingItem[]
+}
+
 export interface SearchLatelyWord {
   name: string
   word?: string
