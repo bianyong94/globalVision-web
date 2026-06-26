@@ -30,6 +30,11 @@ const STORAGE_KEY = "vastren.search.v3"
 const getSearchWord = (item: { word?: string; name?: string }) =>
   item.word || item.name || ""
 
+const normalizeSearchValue = (value: unknown) => {
+  if (typeof value !== "string") return ""
+  return value.trim() ? value : ""
+}
+
 const Search = () => {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -49,10 +54,12 @@ const Search = () => {
   }, [])
 
   const [keyword, setKeyword] = useState(
-    searchParams.get("q") || restoredState.keyword || "",
+    normalizeSearchValue(searchParams.get("q")) ||
+      normalizeSearchValue(restoredState.keyword),
   )
   const [submittedKeyword, setSubmittedKeyword] = useState(
-    searchParams.get("q") || restoredState.submittedKeyword || "",
+    normalizeSearchValue(searchParams.get("q")) ||
+      normalizeSearchValue(restoredState.submittedKeyword),
   )
   const deferredKeyword = useDeferredValue(keyword.trim())
   const deferredSubmittedKeyword = useDeferredValue(submittedKeyword.trim())
@@ -186,9 +193,11 @@ const Search = () => {
               <input
                 ref={inputRef}
                 value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
-                placeholder="键入影片、演员、关键词..."
-                className="w-full bg-transparent text-sm outline-none placeholder:text-white/20 text-white"
+                onChange={(event) =>
+                  setKeyword(normalizeSearchValue(event.target.value) || event.target.value)
+                }
+                placeholder="输入影片、演员、关键词..."
+                className="w-full bg-transparent text-sm outline-none placeholder:text-white/40 text-white"
               />
               {keyword.trim() ? (
                 <button
@@ -375,7 +384,9 @@ const Search = () => {
                     <Loader2
                       size={12}
                       className={
-                        listQuery.isRefetching ? "animate-spin text-lime-400" : ""
+                        listQuery.isRefetching
+                          ? "animate-spin text-lime-400"
+                          : ""
                       }
                     />
                     <span>刷新</span>

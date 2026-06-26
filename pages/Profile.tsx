@@ -3,9 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import {
   CircleUserRound,
   Search,
-  Sparkles,
   History,
-  Bookmark,
   Trash2,
   Play,
 } from "lucide-react"
@@ -76,16 +74,9 @@ const Profile = () => {
               <CircleUserRound size={32} strokeWidth={1.8} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-extrabold tracking-tight">
-                  个人中心
-                </h1>
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/60 border border-white/5">
-                  游客模式
-                </span>
-              </div>
+              <h1 className="text-xl font-extrabold tracking-tight">我的</h1>
               <p className="mt-1 text-xs text-white/40 truncate">
-                观看记录存储在本地，清除浏览器数据将丢失
+                本地保存观看记录，支持从历史记录继续播放
               </p>
             </div>
           </div>
@@ -108,15 +99,7 @@ const Profile = () => {
               </div>
             </button>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col justify-between rounded-xl border border-dashed border-white/10 bg-black/20 p-4 opacity-60">
-                <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
-                  <Bookmark size={14} className="text-lime-400/80" />
-                  我的收藏
-                </div>
-                <p className="mt-4 text-[11px] text-white/30">暂无收藏内容</p>
-              </div>
-
+            <div className="grid grid-cols-1 gap-3">
               <button
                 onClick={refreshHistory}
                 className="flex flex-col justify-between rounded-xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-lime-400/20 hover:bg-black/30"
@@ -129,17 +112,6 @@ const Profile = () => {
                   {historyList.length > 0 ? `${historyList.length} 条记录` : "暂无播放记录"}
                 </p>
               </button>
-            </div>
-          </div>
-
-          <div className="mt-6 flex items-start gap-2.5 rounded-xl bg-lime-400/[0.02] border border-lime-400/10 p-3.5">
-            <Sparkles
-              size={14}
-              className="text-lime-400 shrink-0 mt-0.5 animate-pulse"
-            />
-            <div className="text-[11px] leading-relaxed text-white/50">
-              <span className="text-lime-400/90 font-medium">提示：</span>
-              播放记录保存在本地浏览器中，支持断点续播。点击下方记录可继续上次观看。
             </div>
           </div>
         </div>
@@ -160,14 +132,14 @@ const Profile = () => {
               </button>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-3 gap-3">
               {historyList.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => handleOpenHistory(item)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-black/20 p-3 text-left transition active:scale-[0.99] hover:bg-white/5 group"
+                  className="group w-full rounded-xl border border-white/5 bg-black/20 p-2.5 text-left transition active:scale-[0.99] hover:bg-white/5"
                 >
-                  <div className="relative h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-[#0c1020]">
+                  <div className="relative overflow-hidden rounded-lg bg-[#0c1020] aspect-[2/3]">
                     <img
                       src={getProxyUrl(item.cover, { w: 240, q: 70 })}
                       alt={item.name}
@@ -181,24 +153,17 @@ const Profile = () => {
                     </div>
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-semibold text-white/90 group-hover:text-lime-400 transition-colors">
+                  <div className="mt-2 min-w-0">
+                    <h3 className="line-clamp-1 text-xs font-semibold text-white/90 group-hover:text-lime-400 transition-colors">
                       {item.name}
                     </h3>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-white/40">
-                      <span className="truncate">
-                        {item.sourceName} · {item.episodeName || `第${item.episodeIndex + 1}集`}
-                      </span>
+                    <div className="mt-1 line-clamp-1 text-[10px] text-white/40">
+                      {item.episodeName || `第${item.episodeIndex + 1}集`}
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-[11px] text-white/30">
-                      <span>播放至 {formatTime(item.currentTime)}</span>
-                      <span>·</span>
-                      <span>{formatDate(item.updatedAt)}</span>
+                    <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-white/30">
+                      <span className="truncate">{formatTime(item.currentTime)}</span>
+                      <span className="shrink-0">{formatDate(item.updatedAt)}</span>
                     </div>
-                  </div>
-
-                  <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg bg-lime-400/10 text-lime-400 group-hover:bg-lime-400 group-hover:text-black transition-all">
-                    <Play size={13} fill="currentColor" />
                   </div>
                 </button>
               ))}
