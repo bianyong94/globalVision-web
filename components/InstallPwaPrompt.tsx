@@ -85,8 +85,7 @@ const InstallPwaPrompt = () => {
     <div
       className="fixed left-4 right-4 z-50 animate-in slide-in-from-bottom-5 duration-500"
       style={{
-        bottom:
-          "calc(env(safe-area-inset-bottom, 0px) + max(5.5rem, 96px))",
+        bottom: "calc(env(safe-area-inset-bottom, 0px) + max(5.5rem, 96px))",
       }}
     >
       <div className="bg-[#1a1a1a]/95 backdrop-blur-md border border-white/10 p-4 rounded-2xl shadow-2xl relative overflow-hidden">
@@ -101,11 +100,13 @@ const InstallPwaPrompt = () => {
         <div className="flex items-start gap-4 pr-6">
           {/* LOGO 占位 */}
           <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center text-black font-bold text-lg shrink-0 shadow-lg shadow-emerald-500/20">
-            GV
+            VT
           </div>
 
           <div className="flex-1">
-            <h3 className="text-white font-bold text-sm mb-1">添加到主屏幕</h3>
+            <h3 className="text-white font-bold text-sm mb-1">
+              添加到主屏幕-获得原生app的体验
+            </h3>
             <p className="text-gray-400 text-xs leading-relaxed mb-3">
               {isIOS
                 ? "添加后可直接从桌面打开，名称会使用网站默认名称。"
@@ -120,7 +121,7 @@ const InstallPwaPrompt = () => {
                   <span className="flex items-center justify-center w-5 h-5 bg-white/10 rounded">
                     1
                   </span>
-                  <span>点击底部浏览器的</span>
+                  <span>点击浏览器的</span>
                   <Share size={14} className="text-blue-400" />
                   <span>分享按钮</span>
                 </div>
@@ -128,7 +129,7 @@ const InstallPwaPrompt = () => {
                   <span className="flex items-center justify-center w-5 h-5 bg-white/10 rounded">
                     2
                   </span>
-                  <span>向下滑动选择</span>
+                  <span>向下滑动选择-查看更多</span>
                   <span className="flex items-center gap-1 font-bold text-white">
                     <PlusSquare size={14} /> 添加到主屏幕
                   </span>
