@@ -82,7 +82,13 @@ const InstallPwaPrompt = () => {
   if (!showPrompt) return null
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 animate-in slide-in-from-bottom-5 duration-500">
+    <div
+      className="fixed left-4 right-4 z-50 animate-in slide-in-from-bottom-5 duration-500"
+      style={{
+        bottom:
+          "calc(env(safe-area-inset-bottom, 0px) + max(5.5rem, 96px))",
+      }}
+    >
       <div className="bg-[#1a1a1a]/95 backdrop-blur-md border border-white/10 p-4 rounded-2xl shadow-2xl relative overflow-hidden">
         {/* 关闭按钮 */}
         <button
