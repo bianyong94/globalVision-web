@@ -7,6 +7,7 @@ import {
 } from "react-router-dom"
 import { Toaster } from "react-hot-toast"
 import BottomNav from "./components/BottomNav"
+import InstallPwaPrompt from "./components/InstallPwaPrompt"
 import Home from "./pages/Home"
 import Search from "./pages/Search"
 import Detail from "./pages/Detail"
@@ -61,6 +62,7 @@ const App = () => {
       />
 
       <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <InstallPwaPrompt />
         <Routes>
           <Route path="/detail/:id" element={<Detail />} />
           <Route path="*" element={<KeepAliveLayout />} />
