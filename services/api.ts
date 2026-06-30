@@ -18,6 +18,8 @@ import {
   SearchMoviesResult,
   SearchRankingGroup,
   SearchRankingItem,
+  ShortVideoCommentItem,
+  ShortVideoCommentResult,
   ShortVideoFeedResult,
   ShortVideoItem,
   VideoDetail,
@@ -718,6 +720,32 @@ const mapShortVideoItem = (item: any): ShortVideoItem | null => {
   }
 }
 
+const mapShortVideoCommentItem = (item: any): ShortVideoCommentItem | null => {
+  const content = String(item?.content || "").trim()
+  const user = item?.user || {}
+  if (!content) return null
+
+  return {
+    id: String(item?.id || ""),
+    postId: String(item?.post_id || ""),
+    userId: String(item?.user_id || ""),
+    content,
+    createTime: item?.create_time ? String(item.create_time) : undefined,
+    likeCount: String(item?.comment_like_count || "0"),
+    isLiked: Boolean(item?.is_liked),
+    user: {
+      id: Number(user?.id || 0),
+      nickname: String(user?.nickname || "匿名用户").trim() || "匿名用户",
+      avatar: normalizeImage(user?.avatar),
+      level: user?.level ? String(user.level) : undefined,
+    },
+    replies: {
+      repliesCount: Number(item?.replies?.replies_count || 0),
+      hasMore: Boolean(item?.replies?.hasMore),
+    },
+  }
+}
+
 const normalizeConfig = (payload: any): AppConfig => {
   const indexTopNav = Array.isArray(payload?.index_top_nav)
     ? payload.index_top_nav
@@ -1077,6 +1105,35 @@ export const fetchShortVideoFeed = async (
     total: Number(response?.data?.total || list.length || 0),
     page: Number(response?.data?.page || params.page || 1),
     pageSize: Number(response?.data?.pageSize || params.pageSize || list.length || 5),
+  }
+}
+
+export const fetchShortVideoComments = async (
+  postId: string | number,
+  params: {
+    page?: number
+    pageSize?: number
+  } = {},
+): Promise<ShortVideoCommentResult> => {
+  const response = await request<any>(`/post/comment/list`, {
+    params: {
+      post_id: postId,
+      page: params.page || 1,
+      pageSize: params.pageSize || 10,
+    },
+  })
+
+  const list = sanitizeList(
+    Array.isArray(response?.data?.list) ? response.data.list : [],
+  )
+    .map(mapShortVideoCommentItem)
+    .filter(Boolean) as ShortVideoCommentItem[]
+
+  return {
+    list,
+    total: Number(response?.data?.total || list.length || 0),
+    page: Number(response?.data?.page || params.page || 1),
+    pageSize: Number(response?.data?.pageSize || params.pageSize || 10),
   }
 }
 

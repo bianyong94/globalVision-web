@@ -350,6 +350,37 @@ export interface ShortVideoFeedResult {
   pageSize: number
 }
 
+export interface ShortVideoCommentUser {
+  id: number
+  nickname: string
+  avatar: string
+  level?: string
+}
+
+export interface ShortVideoCommentReplyMeta {
+  repliesCount: number
+  hasMore: boolean
+}
+
+export interface ShortVideoCommentItem {
+  id: string
+  postId: string
+  userId: string
+  content: string
+  createTime?: string
+  likeCount: string
+  isLiked: boolean
+  user: ShortVideoCommentUser
+  replies: ShortVideoCommentReplyMeta
+}
+
+export interface ShortVideoCommentResult {
+  list: ShortVideoCommentItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface HomeSectionItem {
   title: string
   items: MovieListItem[]

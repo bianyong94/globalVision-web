@@ -2,19 +2,24 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { useLocation } from "react-router-dom"
 import {
+  Eye,
+  EyeOff,
   Flame,
   Heart,
   Loader2,
   MessageCircle,
-  Pause,
   Play,
   RefreshCw,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react"
 import SEO from "../components/SEO"
-import { fetchShortVideoFeed } from "../services/api"
-import { ShortVideoItem } from "../types"
+import {
+  fetchShortVideoComments,
+  fetchShortVideoFeed,
+} from "../services/api"
+import { ShortVideoCommentItem, ShortVideoItem } from "../types"
 import {
   createImageFallbackHandler,
   getProxyUrl,
@@ -22,6 +27,7 @@ import {
 } from "../utils/common"
 
 const FEED_PAGE_SIZE = 5
+const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
 
 type FeedMode = "latest" | "recommend"
@@ -46,7 +52,9 @@ const readState = (): FeedState => {
     const parsed = JSON.parse(raw) as Partial<FeedState>
     return {
       activeFeed:
-        parsed.activeFeed === "recommend" ? "recommend" : DEFAULT_STATE.activeFeed,
+        parsed.activeFeed === "recommend"
+          ? "recommend"
+          : DEFAULT_STATE.activeFeed,
       activeIndexByFeed: {
         latest:
           typeof parsed.activeIndexByFeed?.latest === "number"
@@ -72,15 +80,223 @@ const formatCount = (value?: string) => {
   if (!value) return "0"
   const normalized = value.trim()
   if (!normalized) return "0"
-  return normalized
+  const num = parseInt(normalized, 10)
+  if (isNaN(num)) return normalized
+  if (num >= 10000) return (num / 10000).toFixed(1) + "w"
+  return num.toString()
 }
 
-const formatDuration = (value?: number) => {
-  if (!value || !Number.isFinite(value)) return ""
-  const minutes = Math.floor(value / 60)
-  const seconds = value % 60
-  if (minutes <= 0) return `${seconds}s`
-  return `${minutes}:${String(seconds).padStart(2, "0")}`
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max)
+
+const CommentSheet = ({
+  open,
+  item,
+  onClose,
+}: {
+  open: boolean
+  item: ShortVideoItem | null
+  onClose: () => void
+}) => {
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const [shouldRender, setShouldRender] = useState(open)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setShouldRender(true)
+      const frame = window.requestAnimationFrame(() => {
+        setIsVisible(true)
+      })
+      return () => window.cancelAnimationFrame(frame)
+    }
+
+    setIsVisible(false)
+    const timer = window.setTimeout(() => {
+      setShouldRender(false)
+    }, 220)
+
+    return () => window.clearTimeout(timer)
+  }, [open])
+
+  useEffect(() => {
+    if (!shouldRender) {
+      setIsVisible(false)
+      return
+    }
+  }, [shouldRender])
+
+  const commentsQuery = useInfiniteQuery({
+    queryKey: ["short-video-comments", item?.id || ""],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) =>
+      fetchShortVideoComments(item?.id || "", {
+        page: Number(pageParam || 1),
+        pageSize: COMMENT_PAGE_SIZE,
+      }),
+    getNextPageParam: (lastPage) => {
+      const loaded = lastPage.page * lastPage.pageSize
+      return loaded < lastPage.total ? lastPage.page + 1 : undefined
+    },
+    enabled: open && Boolean(item?.id),
+    staleTime: 1000 * 30,
+  })
+
+  const comments = commentsQuery.data?.pages.flatMap((page) => page.list) || []
+
+  useEffect(() => {
+    if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose, open])
+
+  useEffect(() => {
+    if (!open) return
+    const el = loadMoreRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0].isIntersecting &&
+          commentsQuery.hasNextPage &&
+          !commentsQuery.isFetchingNextPage
+        ) {
+          commentsQuery.fetchNextPage()
+        }
+      },
+      { threshold: 0.1, rootMargin: "160px" },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [
+    commentsQuery.fetchNextPage,
+    commentsQuery.hasNextPage,
+    commentsQuery.isFetchingNextPage,
+    open,
+  ])
+
+  if (!shouldRender) return null
+
+  return (
+    <div className="absolute inset-0 z-[80]">
+      <button
+        type="button"
+        className={`absolute inset-0 backdrop-blur-[2px] transition-opacity duration-200 ${
+          isVisible ? "bg-black/55 opacity-100" : "bg-black/0 opacity-0"
+        }`}
+        onClick={onClose}
+        aria-label="关闭评论"
+      />
+
+      <section
+        className={`absolute inset-x-0 bottom-0 h-[72dvh] overflow-hidden rounded-t-[28px] border-t border-white/10 bg-[#0c0d12] shadow-[0_-18px_60px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out ${
+          isVisible ? "translate-y-0" : "translate-y-full"
+        }`}
+      >
+        <div className="flex items-center justify-between px-5 pb-3 pt-3">
+          <div>
+            <p className="text-sm font-semibold text-white/95">
+              {item?.commentCount || comments.length} 条评论
+            </p>
+            {item?.description ? (
+              <p className="mt-1 line-clamp-1 text-xs text-white/45">
+                {item.description}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-white/5 p-2 text-white/70 active:scale-95"
+            aria-label="关闭评论弹层"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="h-px bg-white/6" />
+
+        <div className="h-[calc(72dvh-4.5rem)] overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4">
+          {commentsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-12 text-white/45">
+              <Loader2 size={20} className="animate-spin" />
+            </div>
+          ) : null}
+
+          {!commentsQuery.isLoading && commentsQuery.isError ? (
+            <div className="py-10 text-center">
+              <p className="text-sm text-white/55">评论加载失败</p>
+              <button
+                type="button"
+                onClick={() => commentsQuery.refetch()}
+                className="mt-4 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white active:scale-95"
+              >
+                重试
+              </button>
+            </div>
+          ) : null}
+
+          {!commentsQuery.isLoading && !commentsQuery.isError && comments.length === 0 ? (
+            <div className="py-12 text-center text-sm text-white/45">
+              暂无评论
+            </div>
+          ) : null}
+
+          <div className="space-y-4">
+            {comments.map((comment: ShortVideoCommentItem) => (
+              <article key={comment.id} className="flex gap-3">
+                <img
+                  src={getProxyUrl(comment.user.avatar, { w: 80, q: 70 })}
+                  alt={comment.user.nickname}
+                  className="h-9 w-9 rounded-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  onError={createImageFallbackHandler(comment.user.avatar)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium text-white/78">
+                      {comment.user.nickname}
+                    </p>
+                    <span className="text-[11px] text-white/35">
+                      {comment.createTime}
+                    </span>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-white/92">
+                    {comment.content}
+                  </p>
+                  <div className="mt-2 flex items-center gap-3 text-[11px] text-white/35">
+                    <span>赞 {comment.likeCount}</span>
+                    {comment.replies.repliesCount > 0 ? (
+                      <span>回复 {comment.replies.repliesCount}</span>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div ref={loadMoreRef} className="flex justify-center py-5">
+            {commentsQuery.isFetchingNextPage ? (
+              <Loader2 size={18} className="animate-spin text-white/45" />
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </div>
+  )
 }
 
 const ShortVideoSlide = ({
@@ -90,8 +306,11 @@ const ShortVideoSlide = ({
   shouldLoad,
   isMuted,
   isPaused,
+  isCleanMode,
   onToggleMute,
   onTogglePaused,
+  onToggleCleanMode,
+  onOpenComments,
 }: {
   item: ShortVideoItem
   isActive: boolean
@@ -99,17 +318,50 @@ const ShortVideoSlide = ({
   shouldLoad: boolean
   isMuted: boolean
   isPaused: boolean
+  isCleanMode: boolean
   onToggleMute: () => void
   onTogglePaused: () => void
+  onToggleCleanMode: () => void
+  onOpenComments: () => void
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressTriggeredRef = useRef(false)
+  const playbackFrameRef = useRef<number | null>(null)
+  const progressTrackRef = useRef<HTMLDivElement | null>(null)
+
   const shouldPlay = isPageActive && isActive && !isPaused
   const poster = getProxyUrl(item.file.thumbnail, { w: 720, q: 72 })
+
+  const [duration, setDuration] = useState<number>(item.file.duration || 0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [bufferedEnd, setBufferedEnd] = useState(0)
+
+  const [isSeeking, setIsSeeking] = useState(false)
+  const [seekValue, setSeekValue] = useState(0)
+
+  const [isBuffering, setIsBuffering] = useState(true)
+  const [isBoosting, setIsBoosting] = useState(false)
+
+  // 确保 duration 是有效数值，防止 NaN 导致进度条计算崩溃
+  const effectiveDuration =
+    Number.isFinite(duration) && duration > 0 ? duration : 1
+  // 核心：当前时间到底是播放时间还是拖拽时间
+  const currentRenderTime = isSeeking ? seekValue : currentTime
+
+  const playedRatio = clamp(currentRenderTime / effectiveDuration, 0, 1)
+  const bufferedRatio = clamp(bufferedEnd / effectiveDuration, 0, 1)
+  const showProgressLoading =
+    shouldLoad &&
+    isActive &&
+    isPageActive &&
+    shouldPlay &&
+    isBuffering &&
+    currentTime > 0
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-
     video.muted = isMuted
   }, [isMuted])
 
@@ -119,38 +371,214 @@ const ShortVideoSlide = ({
 
     if (!shouldPlay) {
       video.pause()
+      video.playbackRate = 1
+      setIsBuffering(false)
       return
     }
 
+    video.playbackRate = isBoosting ? 2 : 1
     const playPromise = video.play()
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch(() => undefined)
     }
-  }, [shouldPlay])
+  }, [isBoosting, shouldPlay])
+
+  useEffect(() => {
+    if (isActive) return
+    setIsSeeking(false)
+    setSeekValue(0)
+    setIsBoosting(false)
+    setIsBuffering(false)
+    longPressTriggeredRef.current = false
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }, [isActive])
+
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current != null) {
+        window.clearTimeout(longPressTimerRef.current)
+      }
+      if (playbackFrameRef.current != null) {
+        window.cancelAnimationFrame(playbackFrameRef.current)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !isActive || !isPageActive || isSeeking) {
+      if (playbackFrameRef.current != null) {
+        window.cancelAnimationFrame(playbackFrameRef.current)
+        playbackFrameRef.current = null
+      }
+      return
+    }
+
+    const syncPlaybackProgress = () => {
+      if (!videoRef.current) return
+      setCurrentTime(videoRef.current.currentTime || 0)
+      syncBuffered()
+      if (!videoRef.current.paused && !videoRef.current.ended) {
+        playbackFrameRef.current =
+          window.requestAnimationFrame(syncPlaybackProgress)
+      } else {
+        playbackFrameRef.current = null
+      }
+    }
+
+    if (!video.paused && !video.ended) {
+      playbackFrameRef.current =
+        window.requestAnimationFrame(syncPlaybackProgress)
+    }
+
+    return () => {
+      if (playbackFrameRef.current != null) {
+        window.cancelAnimationFrame(playbackFrameRef.current)
+        playbackFrameRef.current = null
+      }
+    }
+  }, [isActive, isPageActive, isSeeking, shouldPlay])
+
+  const syncBuffered = () => {
+    const video = videoRef.current
+    if (!video || !video.buffered.length) return
+    const end = video.buffered.end(video.buffered.length - 1)
+    setBufferedEnd(end)
+  }
+
+  const resetLongPress = () => {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    const video = videoRef.current
+    if (video) video.playbackRate = 1
+    setIsBoosting(false)
+  }
+
+  const triggerLongPress = () => {
+    longPressTriggeredRef.current = true
+    setIsBoosting(true)
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      navigator.vibrate(10)
+    }
+    const video = videoRef.current
+    if (video) {
+      video.playbackRate = 2
+      if (video.paused && shouldPlay) {
+        const playPromise = video.play()
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(() => undefined)
+        }
+      }
+    }
+  }
+
+  const handlePressStart = () => {
+    if (!isActive) return
+    longPressTriggeredRef.current = false
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current)
+    }
+    longPressTimerRef.current = window.setTimeout(triggerLongPress, 280)
+  }
+
+  const handlePressEnd = () => {
+    const triggered = longPressTriggeredRef.current
+    resetLongPress()
+    if (triggered) {
+      longPressTriggeredRef.current = false
+      return
+    }
+    onTogglePaused()
+  }
+
+  const handlePressCancel = () => {
+    longPressTriggeredRef.current = false
+    resetLongPress()
+  }
+
+  // ==== 核心：修复进度条拖拽逻辑 ====
+  const handleSeekStart = () => {
+    setIsSeeking(true)
+  }
+
+  const handleSeekChange = (value: number) => {
+    setIsSeeking(true)
+    setSeekValue(value)
+  }
+
+  const handleSeekCommit = (value: number) => {
+    const video = videoRef.current
+    if (video) {
+      video.currentTime = value
+    }
+    setCurrentTime(value)
+    setSeekValue(value)
+    setIsSeeking(false)
+  }
+
+  const getSeekValueFromPointer = (clientX: number) => {
+    const track = progressTrackRef.current
+    if (!track) return 0
+    const rect = track.getBoundingClientRect()
+    const ratio = clamp((clientX - rect.left) / Math.max(rect.width, 1), 0, 1)
+    return ratio * effectiveDuration
+  }
+
+  const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    event.preventDefault()
+    handleSeekStart()
+    const nextValue = getSeekValueFromPointer(event.clientX)
+    handleSeekChange(nextValue)
+
+    const target = event.currentTarget
+    if (target.setPointerCapture) {
+      target.setPointerCapture(event.pointerId)
+    }
+  }
+
+  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isSeeking) return
+    event.stopPropagation()
+    event.preventDefault()
+    handleSeekChange(getSeekValueFromPointer(event.clientX))
+  }
+
+  const handleTrackPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isSeeking) return
+    event.stopPropagation()
+    event.preventDefault()
+    handleSeekCommit(getSeekValueFromPointer(event.clientX))
+
+    const target = event.currentTarget
+    if (target.hasPointerCapture?.(event.pointerId)) {
+      target.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleTrackPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isSeeking) return
+    event.stopPropagation()
+    event.preventDefault()
+    handleSeekCommit(getSeekValueFromPointer(event.clientX))
+  }
 
   return (
-    <article className="relative h-[100dvh] w-full snap-start overflow-hidden bg-black text-white">
-      <div className="absolute inset-0">
-        {poster ? (
-          <img
-            src={poster}
-            alt=""
-            className="h-full w-full scale-110 object-cover opacity-40 blur-2xl"
-            loading="lazy"
-            decoding="async"
-            onError={createImageFallbackHandler(item.file.thumbnail)}
-          />
-        ) : (
-          <div className="h-full w-full bg-black" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/10 to-black/75" />
-      </div>
-
-      <div className="relative flex h-full w-full items-center justify-center">
+    <article
+      className="relative h-full w-full snap-center overflow-hidden bg-black text-white"
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div className="absolute inset-0 z-0">
         {shouldLoad ? (
           <video
             ref={videoRef}
-            className="h-full w-full object-contain"
+            className="absolute inset-0 h-full w-full object-cover"
             src={normalizeMediaUrl(item.file.resourceURL)}
             poster={poster}
             preload={isActive ? "auto" : "metadata"}
@@ -158,99 +586,220 @@ const ShortVideoSlide = ({
             loop
             muted={isMuted}
             controls={false}
+            onLoadedMetadata={(event) => {
+              const d = event.currentTarget.duration
+              if (Number.isFinite(d) && d > 0) setDuration(d)
+              setIsBuffering(false)
+              syncBuffered()
+            }}
+            onDurationChange={(event) => {
+              const d = event.currentTarget.duration
+              if (Number.isFinite(d) && d > 0) setDuration(d)
+            }}
+            onTimeUpdate={(event) => {
+              if (!isSeeking)
+                setCurrentTime(event.currentTarget.currentTime || 0)
+            }}
+            onProgress={syncBuffered}
+            onCanPlay={() => setIsBuffering(false)}
+            onCanPlayThrough={() => setIsBuffering(false)}
+            onWaiting={() => setIsBuffering(true)}
+            onPlaying={() => setIsBuffering(false)}
           />
         ) : poster ? (
           <img
             src={poster}
             alt={item.description || item.user.nickname}
-            className="h-full w-full object-contain"
+            className="absolute inset-0 h-full w-full object-cover opacity-80"
             loading="lazy"
             decoding="async"
             onError={createImageFallbackHandler(item.file.thumbnail)}
           />
         ) : (
-          <div className="h-full w-full bg-black" />
+          <div className="absolute inset-0 h-full w-full bg-[#111]" />
         )}
+      </div>
 
-        <button
-          type="button"
-          onClick={onTogglePaused}
-          className="absolute inset-0"
-          aria-label={isPaused ? "播放视频" : "暂停视频"}
-        />
+      <button
+        type="button"
+        className="absolute inset-0 z-20"
+        aria-label={isPaused ? "播放视频" : "暂停视频"}
+        onPointerDown={handlePressStart}
+        onPointerUp={handlePressEnd}
+        onPointerCancel={handlePressCancel}
+        onPointerLeave={handlePressCancel}
+      />
 
-        {isPaused && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="rounded-full bg-black/40 p-5 backdrop-blur-xl">
-              <Play size={28} className="fill-white text-white" />
-            </div>
-          </div>
-        )}
-
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
-
-        <div className="absolute right-3 bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-10 flex flex-col items-center gap-4">
-          <button
-            type="button"
-            onClick={onToggleMute}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition active:scale-95"
-            aria-label={isMuted ? "打开声音" : "静音"}
-          >
-            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-          </button>
-
-          <div className="flex flex-col items-center gap-1 text-white">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/35 backdrop-blur-md">
-              <Heart size={20} className={item.isLiked ? "fill-red-500 text-red-500" : ""} />
-            </div>
-            <span className="text-[11px] font-medium">{formatCount(item.likeCount)}</span>
-          </div>
-
-          <div className="flex flex-col items-center gap-1 text-white">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/35 backdrop-blur-md">
-              <MessageCircle size={20} />
-            </div>
-            <span className="text-[11px] font-medium">{formatCount(item.commentCount)}</span>
-          </div>
+      <div
+        className={`pointer-events-none absolute inset-0 z-30 flex items-center justify-center transition-opacity duration-300 ${
+          isPaused ? "opacity-100 scale-100" : "opacity-0 scale-150"
+        }`}
+      >
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/40 backdrop-blur-md">
+          <Play size={32} className="ml-1 fill-white text-white opacity-90" />
         </div>
+      </div>
 
-        <div className="absolute inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-10 px-4">
-          <div className="flex max-w-[calc(100%-4.5rem)] items-center gap-3">
+      <div
+        className={`pointer-events-none absolute left-1/2 top-24 z-30 -translate-x-1/2 transition-all duration-200 ${
+          isBoosting ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-4"
+        }`}
+      >
+        <div className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold tracking-wide backdrop-blur-md">
+          <span className="text-lime-400">▶▶</span>
+          <span>2x 快进中</span>
+        </div>
+      </div>
+
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-black/60 to-transparent transition-opacity duration-150 ${
+          isCleanMode ? "opacity-0" : "opacity-100"
+        }`}
+      />
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-90 transition-opacity duration-150 ${
+          isCleanMode ? "opacity-0" : "opacity-90"
+        }`}
+      />
+
+      <div className="absolute bottom-12 right-3 z-30 flex flex-col items-center gap-5 pb-4">
+        <div
+          className={`flex flex-col items-center gap-5 transition-opacity duration-150 ${
+            isCleanMode ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+        >
+          <div className="relative mb-3 flex flex-col items-center">
             <img
               src={getProxyUrl(item.user.avatar, { w: 96, q: 72 })}
               alt={item.user.nickname}
-              className="h-11 w-11 rounded-full border border-white/20 object-cover"
+              className="h-12 w-12 rounded-full border-[1.5px] border-white object-cover shadow-lg"
               loading="lazy"
               decoding="async"
               onError={createImageFallbackHandler(item.user.avatar)}
             />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-semibold">@{item.user.nickname}</p>
-                {item.infoText ? (
-                  <span className="rounded-full border border-lime-400/25 bg-lime-400/10 px-2 py-0.5 text-[10px] font-semibold text-lime-300">
-                    {item.infoText}
-                  </span>
-                ) : null}
-                {item.file.duration ? (
-                  <span className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/75">
-                    {formatDuration(item.file.duration)}
-                  </span>
-                ) : null}
-              </div>
-              {item.description ? (
-                <p className="mt-2 line-clamp-4 text-sm leading-6 text-white/88">
-                  {item.description}
-                </p>
-              ) : (
-                <p className="mt-2 text-sm text-white/55">暂无文案</p>
-              )}
-              {item.createdAt ? (
-                <p className="mt-2 text-xs text-white/45">{item.createdAt}</p>
-              ) : null}
-            </div>
           </div>
+
+          <button className="group flex flex-col items-center gap-1.5 drop-shadow-md transition-transform active:scale-90">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 backdrop-blur-sm transition group-hover:bg-black/40">
+              <Heart
+                size={26}
+                className={
+                  item.isLiked ? "fill-red-500 text-red-500" : "text-white"
+                }
+              />
+            </div>
+            <span className="text-[11px] font-bold tracking-wide">
+              {formatCount(item.likeCount)}
+            </span>
+          </button>
+
+          <button
+            onClick={(event) => {
+              event.stopPropagation()
+              onOpenComments()
+            }}
+            className="group flex flex-col items-center gap-1.5 drop-shadow-md transition-transform active:scale-90"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 backdrop-blur-sm transition group-hover:bg-black/40">
+              <MessageCircle size={26} className="fill-white/10 text-white" />
+            </div>
+            <span className="text-[11px] font-bold tracking-wide">
+              {formatCount(item.commentCount)}
+            </span>
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleMute()
+            }}
+            className="group mt-2 flex flex-col items-center gap-1.5 drop-shadow-md transition-transform active:scale-90"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 backdrop-blur-sm transition group-hover:bg-black/40">
+              {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+            </div>
+          </button>
+        </div>
+
+        <button
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggleCleanMode()
+          }}
+          className="group mt-2 flex flex-col items-center gap-1.5 drop-shadow-md transition-transform active:scale-90"
+          aria-label={isCleanMode ? "恢复界面" : "清屏"}
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 backdrop-blur-sm transition group-hover:bg-black/40">
+            {isCleanMode ? <Eye size={24} /> : <EyeOff size={24} />}
+          </div>
+        </button>
+      </div>
+
+      <div
+        className={`absolute bottom-12 left-4 right-16 z-30 flex flex-col justify-end gap-2.5 pb-4 transition-opacity duration-150 ${
+          isCleanMode ? "opacity-0 pointer-events-none" : "opacity-100"
+        }`}
+      >
+        <h2 className="text-base font-bold drop-shadow-md">
+          @{item.user.nickname}
+        </h2>
+        {item.description && (
+          <p className="line-clamp-3 text-sm leading-relaxed text-white/95 drop-shadow-md">
+            {item.description}
+          </p>
+        )}
+        {(item.infoText || item.createdAt) && (
+          <div className="flex items-center gap-2 text-[11px] font-medium text-white/80">
+            {item.infoText && (
+              <span className="rounded bg-white/20 px-1.5 py-0.5 backdrop-blur-sm">
+                {item.infoText}
+              </span>
+            )}
+            {item.createdAt && <span>{item.createdAt}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* ==== 核心布局修复：进度条 ====
+        1. 预留了 pb-2 (8px)，确保在任何屏幕圆角或容器下，放大的圆形 Thumb 都不会被截断。
+        2. h-10 提供极大的防误触区域，方便指腹拖拽。
+      */}
+      <div
+        className={`group/slider absolute inset-x-0 bottom-0 z-40 flex h-10 w-full items-end pb-2 transition-opacity duration-150 ${
+          isCleanMode ? "opacity-0 pointer-events-none" : "opacity-100"
+        }`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
+      >
+        <div
+          ref={progressTrackRef}
+          className={`relative w-full rounded-full transition-all duration-200 ${isSeeking ? "h-[6px]" : "h-[2px] group-hover/slider:h-[4px]"}`}
+          onPointerDown={handleTrackPointerDown}
+          onPointerMove={handleTrackPointerMove}
+          onPointerUp={handleTrackPointerUp}
+          onPointerCancel={handleTrackPointerCancel}
+        >
+          {/* 背景轨道 */}
+          <div className="absolute inset-0 rounded-full bg-white/20" />
+
+          {showProgressLoading ? (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+              <div className="short-video-progress-loading absolute inset-y-0 left-0 w-24 rounded-full" />
+            </div>
+          ) : null}
+
+          {/* 缓冲轨道 */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-white/40 transition-all duration-300"
+            style={{ width: `${bufferedRatio * 100}%` }}
+          />
+
+          {/* 已播放轨道 */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.28)]"
+            style={{ width: `${playedRatio * 100}%` }}
+          />
         </div>
       </div>
     </article>
@@ -260,12 +809,18 @@ const ShortVideoSlide = ({
 const ShortVideo = () => {
   const location = useLocation()
   const initialState = useMemo(readState, [])
-  const [activeFeed, setActiveFeed] = useState<FeedMode>(initialState.activeFeed)
-  const [activeIndexByFeed, setActiveIndexByFeed] = useState<Record<FeedMode, number>>(
-    initialState.activeIndexByFeed,
+  const [activeFeed, setActiveFeed] = useState<FeedMode>(
+    initialState.activeFeed,
   )
+  const [activeIndexByFeed, setActiveIndexByFeed] = useState<
+    Record<FeedMode, number>
+  >(initialState.activeIndexByFeed)
   const [isMuted, setIsMuted] = useState(true)
   const [pausedVideoId, setPausedVideoId] = useState<string | null>(null)
+  const [isCleanMode, setIsCleanMode] = useState(false)
+  const [commentSheetItem, setCommentSheetItem] = useState<ShortVideoItem | null>(
+    null,
+  )
   const containerRef = useRef<HTMLDivElement | null>(null)
   const restoredFeedRef = useRef<FeedMode | null>(null)
 
@@ -304,7 +859,11 @@ const ShortVideo = () => {
 
   useEffect(() => {
     if (!items.length) return
-    if (activeIndex >= items.length - 2 && feedQuery.hasNextPage && !feedQuery.isFetchingNextPage) {
+    if (
+      activeIndex >= items.length - 2 &&
+      feedQuery.hasNextPage &&
+      !feedQuery.isFetchingNextPage
+    ) {
       feedQuery.fetchNextPage()
     }
   }, [
@@ -352,7 +911,8 @@ const ShortVideo = () => {
 
         for (const entry of entries) {
           const ratio = entry.intersectionRatio
-          if (!entry.isIntersecting || ratio < 0.6 || ratio < bestRatio) continue
+          if (!entry.isIntersecting || ratio < 0.6 || ratio < bestRatio)
+            continue
           bestRatio = ratio
           nextIndex = Number(
             (entry.target as HTMLElement).dataset.shortVideoIndex || 0,
@@ -384,6 +944,7 @@ const ShortVideo = () => {
     if (feed === activeFeed) return
     restoredFeedRef.current = null
     setPausedVideoId(null)
+    setCommentSheetItem(null)
     setActiveFeed(feed)
   }
 
@@ -392,11 +953,22 @@ const ShortVideo = () => {
   }
 
   return (
-    <div className="fixed inset-0 bg-black text-white">
-      <SEO title="短视频" description="短视频沉浸式滑动浏览，支持最新与推荐切换。" />
+    // 使用 fixed 让页面严格卡在底部导航栏之上，防止溢出。
+    // 请确保你们全局的 --bottom-nav-height 设定正确（通常底部 Tab 栏的高度是 3.5rem ~ 4rem）
+    <div
+      className="fixed inset-x-0 top-0 z-40 bg-black text-white"
+      style={{
+        bottom:
+          "calc(var(--bottom-nav-height, 4rem) + env(safe-area-inset-bottom, 0px))",
+      }}
+    >
+      <SEO
+        title="短视频"
+        description="短视频沉浸式滑动浏览，支持最新与推荐切换。"
+      />
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
-        <div className="pointer-events-auto mx-auto flex max-w-sm items-center justify-center gap-2 rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-xl">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-50 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+        <div className="pointer-events-auto mx-auto flex max-w-sm items-center justify-center gap-6">
           {FEED_TABS.map((tab) => {
             const active = tab.key === activeFeed
             return (
@@ -404,14 +976,19 @@ const ShortVideo = () => {
                 key={tab.key}
                 type="button"
                 onClick={() => handleFeedChange(tab.key)}
-                className={
+                className={`relative flex items-center justify-center gap-1 py-2 text-[17px] transition-all ${
                   active
-                    ? "flex min-w-[6.5rem] items-center justify-center gap-1 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black"
-                    : "flex min-w-[6.5rem] items-center justify-center gap-1 rounded-full px-4 py-2 text-sm font-medium text-white/65"
-                }
+                    ? "font-bold text-white drop-shadow-md scale-105"
+                    : "font-semibold text-white/60 hover:text-white/80"
+                }`}
               >
-                {tab.key === "recommend" ? <Flame size={15} /> : null}
+                {tab.key === "recommend" && active ? (
+                  <Flame size={16} className="text-lime-400" />
+                ) : null}
                 {tab.label}
+                {active && (
+                  <span className="absolute bottom-0 left-1/2 h-[3px] w-6 -translate-x-1/2 rounded-full bg-lime-400 drop-shadow-[0_0_8px_rgba(163,230,53,0.8)]" />
+                )}
               </button>
             )
           })}
@@ -419,28 +996,30 @@ const ShortVideo = () => {
       </header>
 
       {feedQuery.isLoading && items.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-white/75 backdrop-blur-xl">
-            <Loader2 size={18} className="animate-spin" />
-            正在加载短视频
+        <div className="flex h-full items-center justify-center bg-black">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 size={32} className="animate-spin text-white/40" />
+            <span className="text-sm font-medium text-white/40 tracking-widest">
+              推荐引擎启动中
+            </span>
           </div>
         </div>
       ) : null}
 
       {feedQuery.isError && items.length === 0 ? (
-        <div className="flex h-full items-center justify-center px-6">
-          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/5 p-6 text-center backdrop-blur-xl">
-            <p className="text-base font-semibold">短视频加载失败</p>
-            <p className="mt-2 text-sm text-white/55">
-              当前数据没有正常返回，请重试。
+        <div className="flex h-full items-center justify-center bg-black px-6">
+          <div className="w-full max-w-sm flex flex-col items-center text-center">
+            <p className="text-lg font-bold text-white/90">加载失败</p>
+            <p className="mt-2 text-sm text-white/50">
+              网络有些颠簸，没能拉取到最新的视频
             </p>
             <button
               type="button"
               onClick={() => feedQuery.refetch()}
-              className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black"
+              className="mt-6 flex items-center gap-2 rounded-full bg-white/10 px-6 py-2.5 text-sm font-bold text-white backdrop-blur-md active:scale-95"
             >
-              <RefreshCw size={15} />
-              重新加载
+              <RefreshCw size={16} />
+              点击重试
             </button>
           </div>
         </div>
@@ -449,12 +1028,16 @@ const ShortVideo = () => {
       {!feedQuery.isLoading && !feedQuery.isError ? (
         <div
           ref={containerRef}
-          className="h-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
+          className="h-full w-full snap-y snap-mandatory overflow-y-auto no-scrollbar"
         >
           {items.map((item, index) => {
             const isActive = index === activeIndex
             return (
-              <div key={item.id} data-short-video-index={index}>
+              <div
+                key={item.id}
+                data-short-video-index={index}
+                className="h-full w-full snap-center snap-always"
+              >
                 <ShortVideoSlide
                   item={item}
                   isActive={isActive}
@@ -462,28 +1045,39 @@ const ShortVideo = () => {
                   shouldLoad={Math.abs(index - activeIndex) <= 2}
                   isMuted={isMuted}
                   isPaused={pausedVideoId === item.id}
+                  isCleanMode={isCleanMode}
                   onToggleMute={() => setIsMuted((current) => !current)}
                   onTogglePaused={() => handleTogglePaused(item.id)}
+                  onToggleCleanMode={() =>
+                    setIsCleanMode((current) => !current)
+                  }
+                  onOpenComments={() => setCommentSheetItem(item)}
                 />
               </div>
             )
           })}
 
           {feedQuery.isFetchingNextPage ? (
-            <div className="absolute right-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/30 p-3 backdrop-blur-lg">
-              <Loader2 size={18} className="animate-spin text-white" />
+            <div className="flex h-20 items-center justify-center bg-black">
+              <Loader2 size={24} className="animate-spin text-white/50" />
             </div>
           ) : null}
         </div>
       ) : null}
 
       {!feedQuery.isLoading && !feedQuery.isError && items.length === 0 ? (
-        <div className="flex h-full items-center justify-center px-6">
-          <div className="rounded-3xl border border-white/10 bg-white/5 px-6 py-5 text-center text-white/65 backdrop-blur-xl">
-            当前分区暂无短视频内容
-          </div>
+        <div className="flex h-full items-center justify-center bg-black px-6">
+          <span className="text-white/40 tracking-widest text-sm">
+            暂无更多内容
+          </span>
         </div>
       ) : null}
+
+      <CommentSheet
+        open={Boolean(commentSheetItem)}
+        item={commentSheetItem}
+        onClose={() => setCommentSheetItem(null)}
+      />
     </div>
   )
 }
