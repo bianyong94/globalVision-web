@@ -34,6 +34,7 @@ const FEED_PAGE_SIZE = 8
 const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
 const PROGRESS_STATE_SYNC_MS = 120
+const RANDOM_BOOTSTRAP_PAGE = 1
 
 type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
@@ -132,6 +133,28 @@ const shuffleShortVideos = (list: ShortVideoItem[], seed: number) => {
     ;[next[index], next[target]] = [next[target], next[index]]
   }
   return next
+}
+
+const pickRandomUnseenPage = (
+  maxPage: number,
+  seenPages: Set<number>,
+  seed: number,
+) => {
+  const safeMaxPage = Math.max(1, maxPage)
+  const availableCount = safeMaxPage - seenPages.size
+  if (availableCount <= 0) return undefined
+
+  const random = seededRandom(seed)
+  for (let attempt = 0; attempt < safeMaxPage * 2; attempt += 1) {
+    const candidate = Math.floor(random() * safeMaxPage) + 1
+    if (!seenPages.has(candidate)) return candidate
+  }
+
+  for (let page = 1; page <= safeMaxPage; page += 1) {
+    if (!seenPages.has(page)) return page
+  }
+
+  return undefined
 }
 
 const formatCount = (value?: string) => {
@@ -1033,15 +1056,51 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
       activeFeed,
       activeFeed === "random" ? randomSeed : 0,
     ],
-    initialPageParam: 1,
-    queryFn: async ({ pageParam }) =>
-      fetchShortVideoFeed(activeFeed === "recommend" ? "recommend" : "latest", {
-        page: Number(pageParam || 1),
+    initialPageParam: activeFeed === "random" ? 0 : 1,
+    queryFn: async ({ pageParam }) => {
+      const targetFeed = activeFeed === "recommend" ? "recommend" : "latest"
+
+      if (activeFeed !== "random") {
+        return fetchShortVideoFeed(targetFeed, {
+          page: Number(pageParam || 1),
+          pageSize: FEED_PAGE_SIZE,
+        })
+      }
+
+      const requestedPage = Number(pageParam || 0)
+      if (requestedPage > 0) {
+        return fetchShortVideoFeed(targetFeed, {
+          page: requestedPage,
+          pageSize: FEED_PAGE_SIZE,
+        })
+      }
+
+      const bootstrap = await fetchShortVideoFeed(targetFeed, {
+        page: RANDOM_BOOTSTRAP_PAGE,
+        pageSize: 1,
+      })
+      const maxPage = Math.max(1, Math.ceil(bootstrap.total / FEED_PAGE_SIZE))
+      const randomPage =
+        pickRandomUnseenPage(maxPage, new Set(), randomSeed) || 1
+
+      return fetchShortVideoFeed(targetFeed, {
+        page: randomPage,
         pageSize: FEED_PAGE_SIZE,
-      }),
-    getNextPageParam: (lastPage) => {
-      const loaded = lastPage.page * lastPage.pageSize
-      return loaded < lastPage.total ? lastPage.page + 1 : undefined
+      })
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      if (activeFeed !== "random") {
+        const loaded = lastPage.page * lastPage.pageSize
+        return loaded < lastPage.total ? lastPage.page + 1 : undefined
+      }
+
+      const maxPage = Math.max(1, Math.ceil(lastPage.total / FEED_PAGE_SIZE))
+      const seenPages = new Set(allPages.map((page) => page.page))
+      return pickRandomUnseenPage(
+        maxPage,
+        seenPages,
+        randomSeed + allPages.length * 97,
+      )
     },
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
