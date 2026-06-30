@@ -9,7 +9,10 @@ import {
   MovieDetailItem,
   MovieEpisodeItem,
   MovieListItem,
+  MovieRankingItem,
   MoviePlaySourceItem,
+  MovieTopicDetail,
+  MovieTopicItem,
   SearchAutocompleteItem,
   SearchLatelyWord,
   SearchMoviesResult,
@@ -554,6 +557,12 @@ const mapListItem = (item: any): MovieListItem | null => {
       item?.collect_count != null ? Number(item.collect_count) : undefined,
     label: item?.label,
     highlight: item?.highlight,
+    blurb: item?.blurb,
+    hot: item?.hot != null ? String(item.hot) : undefined,
+    popularity_score:
+      item?.popularity_score != null
+        ? Number(item.popularity_score)
+        : undefined,
     score: item?.score != null ? String(item.score) : undefined,
     remarks: item?.remarks,
     members: Array.isArray(item?.members)
@@ -566,6 +575,31 @@ const mapListItem = (item: any): MovieListItem | null => {
     safe: true,
     click: String(item?.click || item?.id || ""),
   }
+}
+
+const normalizeNamedList = (payload: any): MovieRankingItem[] => {
+  const source = Array.isArray(payload?.data?.list)
+    ? payload.data.list
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload?.list)
+        ? payload.list
+        : Array.isArray(payload)
+          ? payload
+          : []
+
+  return source
+    .map((item: any, index: number) => ({
+      id: Number(
+        item?.id ||
+          item?.ranking_id ||
+          item?.type_id ||
+          item?.sort_id ||
+          index + 1,
+      ),
+      name: String(item?.name || item?.title || item?.type_name || "").trim(),
+    }))
+    .filter((item) => item.id > 0 && item.name)
 }
 
 const mapComment = (item: any): MovieCommentItem | null => {
@@ -886,6 +920,74 @@ export const fetchSearchLatelyWords = async (): Promise<SearchLatelyWord[]> => {
     word: item?.word != null ? String(item.word) : undefined,
     safe: true,
   }))
+}
+
+export const fetchRankingCategories = async (): Promise<MovieRankingItem[]> => {
+  const response = await request<any>(`/movie/ranking/list`)
+  return normalizeNamedList(response)
+}
+
+export const fetchRankingMovies = async (
+  id: number | string,
+): Promise<MovieListItem[]> => {
+  const response = await request<any>(`/movie/ranking/data`, {
+    params: { id },
+  })
+  const list = sanitizeList(Array.isArray(response?.data) ? response.data : [])
+  return list.map(mapListItem).filter(Boolean) as MovieListItem[]
+}
+
+export const fetchWeeklyMovies = async (
+  weekDay: number | string,
+): Promise<MovieListItem[]> => {
+  const response = await request<any>(`/movie/weekly`, {
+    params: { week_day: weekDay },
+  })
+  const list = sanitizeList(
+    Array.isArray(response?.data?.list)
+      ? response.data.list
+      : Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response?.list)
+          ? response.list
+          : [],
+  )
+  return list.map(mapListItem).filter(Boolean) as MovieListItem[]
+}
+
+export const fetchTopics = async (): Promise<MovieTopicItem[]> => {
+  const response = await request<any>(`/movie/topic`)
+  const list = sanitizeList(Array.isArray(response?.data?.list) ? response.data.list : [])
+  return list
+    .map((item: any) => ({
+      id: Number(item?.id || 0),
+      name: String(item?.name || "").trim(),
+      cover: normalizeImage(item?.cover || item?.image || item?.poster),
+      view: item?.view != null ? String(item.view) : undefined,
+      description: item?.description ? String(item.description) : undefined,
+      movie_count:
+        item?.movie_count != null ? Number(item.movie_count) : undefined,
+    }))
+    .filter((item: MovieTopicItem) => item.id > 0 && item.name)
+}
+
+export const fetchTopicDetail = async (
+  id: number | string,
+): Promise<MovieTopicDetail> => {
+  const response = await request<any>(`/movie/topic/${id}`)
+  const data = response?.data || {}
+  const movies = sanitizeList(Array.isArray(data?.movies) ? data.movies : [])
+    .map(mapListItem)
+    .filter(Boolean) as MovieListItem[]
+
+  return {
+    id: Number(data?.id || id),
+    name: String(data?.name || "").trim(),
+    description: data?.description ? String(data.description) : undefined,
+    cover: normalizeImage(data?.cover || data?.image || data?.poster),
+    view: data?.view != null ? String(data.view) : undefined,
+    movies,
+  }
 }
 
 export const fetchSearchResults = async (params: {

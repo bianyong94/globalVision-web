@@ -9,11 +9,12 @@ import { Toaster } from "react-hot-toast"
 import BottomNav from "./components/BottomNav"
 import InstallPwaPrompt from "./components/InstallPwaPrompt"
 import Home from "./pages/Home"
+import Explore from "./pages/Explore"
 import Search from "./pages/Search"
 import Detail from "./pages/Detail"
 import Profile from "./pages/Profile"
 
-const TAB_PATHS = ["/", "/search", "/profile"] as const
+const TAB_PATHS = ["/", "/explore", "/search", "/profile"] as const
 
 const KeepAliveLayout = () => {
   const location = useLocation()
@@ -32,6 +33,12 @@ const KeepAliveLayout = () => {
         style={{ visibility: isTabPage && location.pathname === "/search" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/search" ? 1 : 0 }}
       >
         <Search />
+      </div>
+      <div
+        className="fixed inset-0 overflow-y-auto"
+        style={{ visibility: isTabPage && location.pathname === "/explore" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/explore" ? 1 : 0 }}
+      >
+        <Explore />
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"

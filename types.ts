@@ -200,11 +200,37 @@ export interface MovieListItem {
   collect_count?: number
   label?: string
   highlight?: string
+  blurb?: string
+  hot?: string
+  popularity_score?: number
   score?: string
   remarks?: string
   members?: MovieListMember[]
   safe?: boolean
   click?: string
+}
+
+export interface MovieRankingItem {
+  id: number
+  name: string
+}
+
+export interface MovieTopicItem {
+  id: number
+  name: string
+  cover: string
+  view?: string
+  description?: string
+  movie_count?: number
+}
+
+export interface MovieTopicDetail {
+  id: number
+  name: string
+  description?: string
+  cover: string
+  view?: string
+  movies: MovieListItem[]
 }
 
 export interface MovieEpisodeItem {
