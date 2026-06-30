@@ -311,6 +311,45 @@ export interface SearchMoviesResult {
   pagecount?: number
 }
 
+export interface ShortVideoFile {
+  resourceURL: string
+  thumbnail: string
+  duration?: number
+  width?: number
+  height?: number
+  size?: number
+  title?: string
+}
+
+export interface ShortVideoUser {
+  id: number
+  nickname: string
+  avatar: string
+  level?: string
+}
+
+export interface ShortVideoItem {
+  id: string
+  description: string
+  fileType: string
+  file: ShortVideoFile
+  createdAt?: string
+  commentCount: string
+  likeCount: string
+  infoText?: string
+  isLiked: boolean
+  isSaved: boolean
+  isFollowed: boolean
+  user: ShortVideoUser
+}
+
+export interface ShortVideoFeedResult {
+  list: ShortVideoItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface HomeSectionItem {
   title: string
   items: MovieListItem[]

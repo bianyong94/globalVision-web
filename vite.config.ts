@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     base: "/",
     server: {
-      port: 5174,
+      port: 2345,
       host: "0.0.0.0",
     },
     plugins: [
@@ -45,7 +45,8 @@ export default defineConfig(({ mode }) => {
           // 核心：缓存来自 API 的图片
           runtimeCaching: [
             {
-              urlPattern: ({ url }) => url.pathname.startsWith("/api/image/proxy"),
+              urlPattern: ({ url }) =>
+                url.pathname.startsWith("/api/image/proxy"),
               handler: "StaleWhileRevalidate",
               options: {
                 cacheName: "api-images-cache",

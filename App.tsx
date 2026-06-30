@@ -13,8 +13,9 @@ import Explore from "./pages/Explore"
 import Search from "./pages/Search"
 import Detail from "./pages/Detail"
 import Profile from "./pages/Profile"
+import ShortVideo from "./pages/ShortVideo"
 
-const TAB_PATHS = ["/", "/explore", "/search", "/profile"] as const
+const TAB_PATHS = ["/", "/explore", "/shorts", "/profile"] as const
 
 const KeepAliveLayout = () => {
   const location = useLocation()
@@ -30,9 +31,9 @@ const KeepAliveLayout = () => {
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"
-        style={{ visibility: isTabPage && location.pathname === "/search" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/search" ? 1 : 0 }}
+        style={{ visibility: isTabPage && location.pathname === "/shorts" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/shorts" ? 1 : 0 }}
       >
-        <Search />
+        <ShortVideo />
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"
@@ -71,6 +72,7 @@ const App = () => {
       <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <InstallPwaPrompt />
         <Routes>
+          <Route path="/search" element={<Search />} />
           <Route path="/detail/:id" element={<Detail />} />
           <Route path="*" element={<KeepAliveLayout />} />
         </Routes>

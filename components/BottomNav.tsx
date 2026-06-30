@@ -1,11 +1,11 @@
 import React from "react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { Compass, Home, Search, User2 } from "lucide-react"
+import { Clapperboard, Compass, Home, User2 } from "lucide-react"
 
 const NAV_ITEMS = [
   { icon: Home, label: "首页", path: "/" },
   { icon: Compass, label: "探索", path: "/explore" },
-  { icon: Search, label: "搜索", path: "/search" },
+  { icon: Clapperboard, label: "短视频", path: "/shorts" },
   { icon: User2, label: "我的", path: "/profile" },
 ]
 

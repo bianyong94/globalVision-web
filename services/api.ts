@@ -18,6 +18,8 @@ import {
   SearchMoviesResult,
   SearchRankingGroup,
   SearchRankingItem,
+  ShortVideoFeedResult,
+  ShortVideoItem,
   VideoDetail,
   VideoSource,
   HomeData,
@@ -677,6 +679,45 @@ const mapDetail = (item: any): MovieDetailItem | null => {
   }
 }
 
+const mapShortVideoItem = (item: any): ShortVideoItem | null => {
+  const file = Array.isArray(item?.files) ? item.files[0] : null
+  const resourceURL = normalizeImage(file?.resourceURL || file?.resourceUrl)
+  const thumbnail = normalizeImage(file?.thumbnail)
+  const user = item?.user || {}
+
+  if (!resourceURL) return null
+
+  return {
+    id: String(item?.post_id || item?.id || resourceURL),
+    description: String(item?.description || "").trim(),
+    fileType: String(item?.file_type || item?.type || "video"),
+    file: {
+      resourceURL,
+      thumbnail,
+      duration:
+        file?.duration != null ? Number(file.duration) || undefined : undefined,
+      width: file?.width != null ? Number(file.width) || undefined : undefined,
+      height:
+        file?.height != null ? Number(file.height) || undefined : undefined,
+      size: file?.size != null ? Number(file.size) || undefined : undefined,
+      title: file?.title ? String(file.title) : undefined,
+    },
+    createdAt: item?.create_time ? String(item.create_time) : undefined,
+    commentCount: String(item?.comment_count || "0"),
+    likeCount: String(item?.like_count || "0"),
+    infoText: item?.info_text ? String(item.info_text) : undefined,
+    isLiked: Boolean(item?.is_liked),
+    isSaved: Boolean(item?.is_saved),
+    isFollowed: Boolean(item?.is_followed),
+    user: {
+      id: Number(user?.id || 0),
+      nickname: String(user?.nickname || "匿名用户").trim() || "匿名用户",
+      avatar: normalizeImage(user?.avatar),
+      level: user?.level ? String(user.level) : undefined,
+    },
+  }
+}
+
 const normalizeConfig = (payload: any): AppConfig => {
   const indexTopNav = Array.isArray(payload?.index_top_nav)
     ? payload.index_top_nav
@@ -1005,6 +1046,37 @@ export const fetchSearchResults = async (params: {
     list: items,
     total: Number(response?.data?.total || items.length || 0),
     pagecount: Number(response?.data?.pagecount || 1),
+  }
+}
+
+export const fetchShortVideoFeed = async (
+  feed: "latest" | "recommend",
+  params: {
+    page?: number
+    pageSize?: number
+  } = {},
+): Promise<ShortVideoFeedResult> => {
+  const response = await request<any>(
+    feed === "recommend" ? `/post/recommend/list` : `/post/list`,
+    {
+      params: {
+        page: params.page || 1,
+        pageSize: params.pageSize || 5,
+      },
+    },
+  )
+
+  const list = sanitizeList(
+    Array.isArray(response?.data?.list) ? response.data.list : [],
+  )
+    .map(mapShortVideoItem)
+    .filter(Boolean) as ShortVideoItem[]
+
+  return {
+    list,
+    total: Number(response?.data?.total || list.length || 0),
+    page: Number(response?.data?.page || params.page || 1),
+    pageSize: Number(response?.data?.pageSize || params.pageSize || list.length || 5),
   }
 }
 
