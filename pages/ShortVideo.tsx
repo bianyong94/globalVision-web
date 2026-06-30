@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import {
   ChevronLeft,
   Eye,
@@ -10,6 +10,7 @@ import {
   Loader2,
   MessageCircle,
   Play,
+  Shuffle,
   RefreshCw,
   Volume2,
   VolumeX,
@@ -32,10 +33,9 @@ import {
 const FEED_PAGE_SIZE = 8
 const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
-const LIKED_VIEW_STORAGE_KEY = "vastren.short-video.likes-view.v1"
 const PROGRESS_STATE_SYNC_MS = 120
 
-type FeedMode = "latest" | "recommend"
+type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
 
 type FeedState = {
@@ -49,10 +49,12 @@ const DEFAULT_STATE: FeedState = {
   activeIndexByFeed: {
     latest: 0,
     recommend: 0,
+    random: 0,
   },
   loadedPagesByFeed: {
     latest: 1,
     recommend: 1,
+    random: 1,
   },
 }
 
@@ -63,9 +65,11 @@ const readState = (): FeedState => {
     const parsed = JSON.parse(raw) as Partial<FeedState>
     return {
       activeFeed:
-        parsed.activeFeed === "recommend"
-          ? "recommend"
-          : DEFAULT_STATE.activeFeed,
+        parsed.activeFeed === "recommend" || parsed.activeFeed === "random"
+          ? parsed.activeFeed
+          : parsed.activeFeed === "latest"
+            ? "latest"
+            : DEFAULT_STATE.activeFeed,
       activeIndexByFeed: {
         latest:
           typeof parsed.activeIndexByFeed?.latest === "number"
@@ -74,6 +78,10 @@ const readState = (): FeedState => {
         recommend:
           typeof parsed.activeIndexByFeed?.recommend === "number"
             ? parsed.activeIndexByFeed.recommend
+            : 0,
+        random:
+          typeof parsed.activeIndexByFeed?.random === "number"
+            ? parsed.activeIndexByFeed.random
             : 0,
       },
       loadedPagesByFeed: {
@@ -87,6 +95,11 @@ const readState = (): FeedState => {
           parsed.loadedPagesByFeed.recommend > 0
             ? parsed.loadedPagesByFeed.recommend
             : 1,
+        random:
+          typeof parsed.loadedPagesByFeed?.random === "number" &&
+          parsed.loadedPagesByFeed.random > 0
+            ? parsed.loadedPagesByFeed.random
+            : 1,
       },
     }
   } catch {
@@ -97,22 +110,28 @@ const readState = (): FeedState => {
 const FEED_TABS: Array<{ key: FeedMode; label: string }> = [
   { key: "latest", label: "最新" },
   { key: "recommend", label: "推荐" },
+  { key: "random", label: "随机" },
 ]
 
-const readLikedViewState = () => {
-  try {
-    const raw = sessionStorage.getItem(LIKED_VIEW_STORAGE_KEY)
-    if (!raw) return { activeIndex: 0 }
-    const parsed = JSON.parse(raw) as { activeIndex?: number }
-    return {
-      activeIndex:
-        typeof parsed.activeIndex === "number" && parsed.activeIndex >= 0
-          ? parsed.activeIndex
-          : 0,
-    }
-  } catch {
-    return { activeIndex: 0 }
+const seededRandom = (seed: number) => {
+  let value = seed || 1
+  return () => {
+    value |= 0
+    value = (value + 0x6d2b79f5) | 0
+    let t = Math.imul(value ^ (value >>> 15), 1 | value)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
+}
+
+const shuffleShortVideos = (list: ShortVideoItem[], seed: number) => {
+  const next = [...list]
+  const random = seededRandom(seed)
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(random() * (index + 1))
+    ;[next[index], next[target]] = [next[target], next[index]]
+  }
+  return next
 }
 
 const formatCount = (value?: string) => {
@@ -916,11 +935,7 @@ const ShortVideoSlide = ({
 const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   const location = useLocation()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const initialState = useMemo(
-    () => (mode === "liked" ? readLikedViewState() : readState()),
-    [mode],
-  )
+  const initialState = useMemo(() => readState(), [mode])
   const [activeFeed, setActiveFeed] = useState<FeedMode>(
     mode === "feed" && "activeFeed" in initialState
       ? initialState.activeFeed
@@ -932,10 +947,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     mode === "feed" && "activeIndexByFeed" in initialState
       ? initialState.activeIndexByFeed
       : {
-          latest:
-            mode === "liked" && "activeIndex" in initialState
-              ? initialState.activeIndex
-              : 0,
+          latest: 0,
           recommend: 0,
         },
   )
@@ -957,11 +969,14 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   const [isCleanMode, setIsCleanMode] = useState(false)
   const [commentSheetItem, setCommentSheetItem] =
     useState<ShortVideoItem | null>(null)
+  const [randomSeed, setRandomSeed] = useState(() => Date.now())
   const containerRef = useRef<HTMLDivElement | null>(null)
   const isRestoringRef = useRef(false)
+  const wasPageActiveRef = useRef(false)
   const restoreCompletedRef = useRef<Record<FeedMode, boolean>>({
     latest: false,
     recommend: false,
+    random: false,
   })
 
   const isStandalone = mode === "liked"
@@ -984,19 +999,6 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   }, [isStandalone])
 
   useEffect(() => {
-    if (!isStandalone) return
-    const startId = searchParams.get("start")
-    if (!startId) return
-    const nextIndex = likedItems.findIndex((item) => item.id === startId)
-    if (nextIndex < 0) return
-    setActiveIndexByFeed((current) =>
-      current.latest === nextIndex
-        ? current
-        : { ...current, latest: nextIndex },
-    )
-  }, [isStandalone, likedItems, searchParams])
-
-  useEffect(() => {
     if (isStandalone) return
     sessionStorage.setItem(
       STORAGE_KEY,
@@ -1009,18 +1011,31 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   }, [activeFeed, activeIndexByFeed, isStandalone, loadedPagesByFeed])
 
   useEffect(() => {
-    if (!isStandalone) return
-    sessionStorage.setItem(
-      LIKED_VIEW_STORAGE_KEY,
-      JSON.stringify({ activeIndex: activeIndexByFeed.latest || 0 }),
-    )
-  }, [activeIndexByFeed.latest, isStandalone])
+    if (isStandalone) return
+
+    if (!wasPageActiveRef.current && isPageActive && activeFeed === "random") {
+      restoreCompletedRef.current.random = false
+      isRestoringRef.current = false
+      setPausedVideoId(null)
+      setCommentSheetItem(null)
+      setActiveIndexByFeed((current) =>
+        current.random === 0 ? current : { ...current, random: 0 },
+      )
+      setRandomSeed(Date.now())
+    }
+
+    wasPageActiveRef.current = isPageActive
+  }, [activeFeed, isPageActive, isStandalone])
 
   const feedQuery = useInfiniteQuery({
-    queryKey: ["short-video-feed", activeFeed],
+    queryKey: [
+      "short-video-feed",
+      activeFeed,
+      activeFeed === "random" ? randomSeed : 0,
+    ],
     initialPageParam: 1,
     queryFn: async ({ pageParam }) =>
-      fetchShortVideoFeed(activeFeed, {
+      fetchShortVideoFeed(activeFeed === "recommend" ? "recommend" : "latest", {
         page: Number(pageParam || 1),
         pageSize: FEED_PAGE_SIZE,
       }),
@@ -1037,7 +1052,12 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
 
   const items = isStandalone
     ? likedItems
-    : feedQuery.data?.pages.flatMap((page) => page.list) || []
+    : activeFeed === "random"
+      ? shuffleShortVideos(
+          feedQuery.data?.pages.flatMap((page) => page.list) || [],
+          randomSeed,
+        )
+      : feedQuery.data?.pages.flatMap((page) => page.list) || []
   const loadedPageCount = feedQuery.data?.pages.length || 0
   const activeIndex = Math.min(
     activeIndexByFeed[activeIndexKey] || 0,
@@ -1189,6 +1209,12 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     isRestoringRef.current = false
     setPausedVideoId(null)
     setCommentSheetItem(null)
+    if (feed === "random") {
+      setActiveIndexByFeed((current) =>
+        current.random === 0 ? current : { ...current, random: 0 },
+      )
+      setRandomSeed(Date.now())
+    }
     setActiveFeed(feed)
   }
 
@@ -1271,6 +1297,8 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
                 >
                   {tab.key === "recommend" && active ? (
                     <Flame size={16} className="text-lime-400" />
+                  ) : tab.key === "random" && active ? (
+                    <Shuffle size={15} className="text-lime-400" />
                   ) : null}
                   {tab.label}
                   {active && (

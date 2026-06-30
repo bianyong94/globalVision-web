@@ -13,6 +13,7 @@ import Explore from "./pages/Explore"
 import Search from "./pages/Search"
 import Detail from "./pages/Detail"
 import Profile from "./pages/Profile"
+import PrivacyPolicy from "./pages/PrivacyPolicy"
 import ShortVideo from "./pages/ShortVideo"
 
 const TAB_PATHS = ["/", "/explore", "/shorts", "/profile"] as const
@@ -74,6 +75,7 @@ const App = () => {
         <Routes>
           <Route path="/search" element={<Search />} />
           <Route path="/detail/:id" element={<Detail />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/shorts/likes" element={<ShortVideo mode="liked" />} />
           <Route path="*" element={<KeepAliveLayout />} />
         </Routes>

@@ -5,6 +5,7 @@ import {
   Search,
   History,
   Heart,
+  Shield,
   Trash2,
   Play,
 } from "lucide-react"
@@ -131,6 +132,19 @@ const Profile = () => {
                 </div>
                 <p className="mt-4 text-[11px] text-lime-400/70 font-medium">
                   {likedVideoCount > 0 ? `${likedVideoCount} 条喜欢` : "暂无喜欢内容"}
+                </p>
+              </button>
+
+              <button
+                onClick={() => navigate("/privacy-policy")}
+                className="flex flex-col justify-between rounded-xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-lime-400/20 hover:bg-black/30"
+              >
+                <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
+                  <Shield size={14} className="text-lime-400/80" />
+                  隐私政策
+                </div>
+                <p className="mt-4 text-[11px] text-lime-400/70 font-medium">
+                  查看本地数据与第三方资源说明
                 </p>
               </button>
             </div>
