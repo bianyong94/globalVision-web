@@ -4,11 +4,13 @@ import {
   CircleUserRound,
   Search,
   History,
+  Heart,
   Trash2,
   Play,
 } from "lucide-react"
 import { getPlayHistory, clearPlayHistory, PlayHistoryItem } from "../utils/history"
 import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
+import { getLikedShortVideos, subscribeShortVideoLikes } from "../utils/shortVideoLikes"
 
 const formatTime = (seconds: number) => {
   const h = Math.floor(seconds / 3600)
@@ -36,13 +38,19 @@ const Profile = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const [historyList, setHistoryList] = useState<PlayHistoryItem[]>(getPlayHistory)
+  const [likedVideoCount, setLikedVideoCount] = useState(getLikedShortVideos().length)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
 
   useEffect(() => {
     if (location.pathname === "/profile") {
       setHistoryList(getPlayHistory())
+      setLikedVideoCount(getLikedShortVideos().length)
     }
   }, [location.pathname])
+
+  useEffect(() => subscribeShortVideoLikes(() => {
+    setLikedVideoCount(getLikedShortVideos().length)
+  }), [])
 
   const refreshHistory = useCallback(() => {
     setHistoryList(getPlayHistory())
@@ -110,6 +118,19 @@ const Profile = () => {
                 </div>
                 <p className="mt-4 text-[11px] text-lime-400/70 font-medium">
                   {historyList.length > 0 ? `${historyList.length} 条记录` : "暂无播放记录"}
+                </p>
+              </button>
+
+              <button
+                onClick={() => navigate("/shorts/likes")}
+                className="flex flex-col justify-between rounded-xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-lime-400/20 hover:bg-black/30"
+              >
+                <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
+                  <Heart size={14} className="text-lime-400/80" />
+                  喜欢的短视频
+                </div>
+                <p className="mt-4 text-[11px] text-lime-400/70 font-medium">
+                  {likedVideoCount > 0 ? `${likedVideoCount} 条喜欢` : "暂无喜欢内容"}
                 </p>
               </button>
             </div>

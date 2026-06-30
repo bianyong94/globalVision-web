@@ -1,0 +1,267 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - main [ref=e8]:
+      - navigation "社区频道" [ref=e10]:
+        - button "最新" [ref=e11] [cursor=pointer]
+        - button "推荐" [ref=e12] [cursor=pointer]
+        - button "ASMR" [ref=e13] [cursor=pointer]
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - img
+            - button "暂停视频" [ref=e18] [cursor=pointer]
+            - generic [ref=e19]:
+              - slider "播放进度" [ref=e20] [cursor=pointer]: "0.5"
+              - emphasis [ref=e21]: 0:00 / 1:15
+          - generic "内容操作" [ref=e23]:
+            - button "0" [ref=e24] [cursor=pointer]:
+              - img [ref=e26]
+              - emphasis [ref=e28]: "0"
+            - button "17" [ref=e29] [cursor=pointer]:
+              - img [ref=e31]
+              - emphasis [ref=e34]: "17"
+            - button "分享" [ref=e35] [cursor=pointer]:
+              - img [ref=e37]
+              - emphasis [ref=e42]: 分享
+            - button "打开声音" [ref=e43] [cursor=pointer]:
+              - img [ref=e45]
+              - emphasis [ref=e48]: 打开
+          - generic [ref=e49]:
+            - strong [ref=e51]: 奶茶骑士
+            - heading "大叔颜值怎么忽上忽下的，不过女主很顶啊" [level=2] [ref=e52]
+        - generic [ref=e53]:
+          - generic [ref=e54]:
+            - img
+            - button "暂停视频" [ref=e56] [cursor=pointer]
+            - generic [ref=e57]:
+              - slider "播放进度" [ref=e58] [cursor=pointer]: "0"
+              - emphasis [ref=e59]: 0:00 / 0:59
+          - generic "内容操作" [ref=e61]:
+            - button "0" [ref=e62] [cursor=pointer]:
+              - img [ref=e64]
+              - emphasis [ref=e66]: "0"
+            - button "10" [ref=e67] [cursor=pointer]:
+              - img [ref=e69]
+              - emphasis [ref=e72]: "10"
+            - button "分享" [ref=e73] [cursor=pointer]:
+              - img [ref=e75]
+              - emphasis [ref=e80]: 分享
+            - button "打开声音" [ref=e81] [cursor=pointer]:
+              - img [ref=e83]
+              - emphasis [ref=e86]: 打开
+          - generic [ref=e87]:
+            - strong [ref=e89]: 摸鱼小王
+            - heading "颜值和身材都好顶，剧情也不错啊，看硬了都" [level=2] [ref=e90]
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - img
+            - button "暂停视频" [ref=e94] [cursor=pointer]
+            - generic [ref=e95]:
+              - slider "播放进度" [ref=e96] [cursor=pointer]: "0"
+              - emphasis [ref=e97]: 0:00 / 0:41
+          - generic "内容操作" [ref=e99]:
+            - button "19" [ref=e100] [cursor=pointer]:
+              - img [ref=e102]
+              - emphasis [ref=e104]: "19"
+            - button "0" [ref=e105] [cursor=pointer]:
+              - img [ref=e107]
+              - emphasis [ref=e110]: "0"
+            - button "分享" [ref=e111] [cursor=pointer]:
+              - img [ref=e113]
+              - emphasis [ref=e118]: 分享
+            - button "打开声音" [ref=e119] [cursor=pointer]:
+              - img [ref=e121]
+              - emphasis [ref=e124]: 打开
+          - generic [ref=e125]:
+            - strong [ref=e127]: 摸鱼小王
+            - heading "大哥到底做了什么，让妹子这么怕" [level=2] [ref=e128]
+        - generic [ref=e129]:
+          - img "清河李哥出轨事件曝光 7000万粉快手大网红与旗下女主播酒店开房视频疯传 近日，快手平台拥有约7400万粉丝的知名男网红清河李哥被多个微博大V博主曝光出轨旗下女主播。爆料称两人酒店开房场景被拍，不雅视频与照片迅速在网络流传。李哥此前以励志、带货形象示人，此次事件导致其正面人设严重崩塌，相关话题“清河李哥”“快手大网红李姓清河”搜索量暴增，成为暑期最大吃瓜事件之一。事件起因于网友爆料，清河李哥与公司旗下女主播存在不当亲密关系。酒店走廊监控视频显示两人一同进入房间，亲密举动被记录。聊天记录中出现“扎心了大网红”“李哥挖墙脚”等调侃内容，网友纷纷表示瓜保熟" [ref=e131]
+          - generic "内容操作" [ref=e133]:
+            - button "11" [ref=e134] [cursor=pointer]:
+              - img [ref=e136]
+              - emphasis [ref=e138]: "11"
+            - button "0" [ref=e139] [cursor=pointer]:
+              - img [ref=e141]
+              - emphasis [ref=e144]: "0"
+            - button "分享" [ref=e145] [cursor=pointer]:
+              - img [ref=e147]
+              - emphasis [ref=e152]: 分享
+            - button "打开声音" [ref=e153] [cursor=pointer]:
+              - img [ref=e155]
+              - emphasis [ref=e158]: 打开
+          - generic [ref=e159]:
+            - strong [ref=e161]: 吃瓜侠
+            - heading "清河李哥出轨事件曝光 7000万粉快手大网红与旗下女主播酒店开房视频疯传 近日，快手平台拥有约7400万粉丝的知名男网红清河李哥被多个微博大V博主曝光出轨旗下女主播。爆料称两人酒店开房场景被拍，不雅视频与照片迅速在网络流传。李哥此前以励志、带货形象示人，此次事件导致其正面人设严重崩塌，相关话题“清河李哥”“快手大网红李姓清河”搜索量暴增，成为暑期最大吃瓜事件之一。事件起因于网友爆料，清河李哥与公司旗下女主播存在不当亲密关系。酒店走廊监控视频显示两人一同进入房间，亲密举动被记录。聊天记录中出现“扎心了大网红”“李哥挖墙脚”等调侃内容，网友纷纷表示瓜保熟" [level=2] [ref=e162]
+        - generic [ref=e163]:
+          - img "这司机是耽误起飞了吗？" [ref=e165]
+          - generic "内容操作" [ref=e167]:
+            - button "4" [ref=e168] [cursor=pointer]:
+              - img [ref=e170]
+              - emphasis [ref=e172]: "4"
+            - button "0" [ref=e173] [cursor=pointer]:
+              - img [ref=e175]
+              - emphasis [ref=e178]: "0"
+            - button "分享" [ref=e179] [cursor=pointer]:
+              - img [ref=e181]
+              - emphasis [ref=e186]: 分享
+            - button "打开声音" [ref=e187] [cursor=pointer]:
+              - img [ref=e189]
+              - emphasis [ref=e192]: 打开
+          - generic [ref=e193]:
+            - strong [ref=e195]: 吃瓜侠
+            - heading "这司机是耽误起飞了吗？" [level=2] [ref=e196]
+        - generic [ref=e197]:
+          - img "5432棋牌" [ref=e199]
+          - button "点击领取" [ref=e201] [cursor=pointer]
+          - generic [ref=e202]:
+            - generic [ref=e203]:
+              - generic [ref=e204]: 推广
+              - strong [ref=e205]: 5432棋牌
+            - button "点击领取" [ref=e206] [cursor=pointer]:
+              - img [ref=e207]
+              - text: 点击领取
+        - generic [ref=e210]:
+          - img "慎看！场面有点刺激" [ref=e212]
+          - generic "内容操作" [ref=e214]:
+            - button "5" [ref=e215] [cursor=pointer]:
+              - img [ref=e217]
+              - emphasis [ref=e219]: "5"
+            - button "2" [ref=e220] [cursor=pointer]:
+              - img [ref=e222]
+              - emphasis [ref=e225]: "2"
+            - button "分享" [ref=e226] [cursor=pointer]:
+              - img [ref=e228]
+              - emphasis [ref=e233]: 分享
+            - button "打开声音" [ref=e234] [cursor=pointer]:
+              - img [ref=e236]
+              - emphasis [ref=e239]: 打开
+          - generic [ref=e240]:
+            - strong [ref=e242]: 吃瓜侠
+            - heading "慎看！场面有点刺激" [level=2] [ref=e243]
+        - generic [ref=e244]:
+          - img "谁不想来一发尿尿激光" [ref=e246]
+          - generic "内容操作" [ref=e248]:
+            - button "7" [ref=e249] [cursor=pointer]:
+              - img [ref=e251]
+              - emphasis [ref=e253]: "7"
+            - button "1" [ref=e254] [cursor=pointer]:
+              - img [ref=e256]
+              - emphasis [ref=e259]: "1"
+            - button "分享" [ref=e260] [cursor=pointer]:
+              - img [ref=e262]
+              - emphasis [ref=e267]: 分享
+            - button "打开声音" [ref=e268] [cursor=pointer]:
+              - img [ref=e270]
+              - emphasis [ref=e273]: 打开
+          - generic [ref=e274]:
+            - strong [ref=e276]: 吃瓜侠
+            - heading "谁不想来一发尿尿激光" [level=2] [ref=e277]
+        - generic [ref=e278]:
+          - img "敬业的记者，这个就叫专业" [ref=e280]
+          - generic "内容操作" [ref=e282]:
+            - button "44" [ref=e283] [cursor=pointer]:
+              - img [ref=e285]
+              - emphasis [ref=e287]: "44"
+            - button "1" [ref=e288] [cursor=pointer]:
+              - img [ref=e290]
+              - emphasis [ref=e293]: "1"
+            - button "分享" [ref=e294] [cursor=pointer]:
+              - img [ref=e296]
+              - emphasis [ref=e301]: 分享
+            - button "打开声音" [ref=e302] [cursor=pointer]:
+              - img [ref=e304]
+              - emphasis [ref=e307]: 打开
+          - generic [ref=e308]:
+            - strong [ref=e310]: 摸鱼小王
+            - heading "敬业的记者，这个就叫专业" [level=2] [ref=e311]
+        - generic [ref=e312]:
+          - img "没见过这么窝囊的抓奸" [ref=e314]
+          - generic "内容操作" [ref=e316]:
+            - button "16" [ref=e317] [cursor=pointer]:
+              - img [ref=e319]
+              - emphasis [ref=e321]: "16"
+            - button "2" [ref=e322] [cursor=pointer]:
+              - img [ref=e324]
+              - emphasis [ref=e327]: "2"
+            - button "分享" [ref=e328] [cursor=pointer]:
+              - img [ref=e330]
+              - emphasis [ref=e335]: 分享
+            - button "打开声音" [ref=e336] [cursor=pointer]:
+              - img [ref=e338]
+              - emphasis [ref=e341]: 打开
+          - generic [ref=e342]:
+            - strong [ref=e344]: 吃瓜侠
+            - heading "没见过这么窝囊的抓奸" [level=2] [ref=e345]
+        - generic [ref=e346]:
+          - img "展示超绝口活" [ref=e348]
+          - generic "内容操作" [ref=e350]:
+            - button "36" [ref=e351] [cursor=pointer]:
+              - img [ref=e353]
+              - emphasis [ref=e355]: "36"
+            - button "2" [ref=e356] [cursor=pointer]:
+              - img [ref=e358]
+              - emphasis [ref=e361]: "2"
+            - button "分享" [ref=e362] [cursor=pointer]:
+              - img [ref=e364]
+              - emphasis [ref=e369]: 分享
+            - button "打开声音" [ref=e370] [cursor=pointer]:
+              - img [ref=e372]
+              - emphasis [ref=e375]: 打开
+          - generic [ref=e376]:
+            - strong [ref=e378]: 吃瓜侠
+            - heading "展示超绝口活" [level=2] [ref=e379]
+        - generic [ref=e380]:
+          - img "PG电子" [ref=e382]
+          - button "点击领取" [ref=e384] [cursor=pointer]
+          - generic [ref=e385]:
+            - generic [ref=e386]:
+              - generic [ref=e387]: 推广
+              - strong [ref=e388]: PG电子
+            - button "点击领取" [ref=e389] [cursor=pointer]:
+              - img [ref=e390]
+              - text: 点击领取
+    - contentinfo [ref=e393]:
+      - generic [ref=e394]:
+        - button "Home 主页" [ref=e395] [cursor=pointer]:
+          - img "Home" [ref=e397]
+          - generic [ref=e398]: 主页
+        - button "Explorer 探索" [ref=e399] [cursor=pointer]:
+          - img "Explorer" [ref=e401]
+          - generic [ref=e402]: 探索
+        - button "Social 广场" [ref=e403] [cursor=pointer]:
+          - img "Social" [ref=e405]
+          - generic [ref=e406]: 广场
+        - button "Profile 我的" [ref=e407] [cursor=pointer]:
+          - img "Profile" [ref=e409]
+          - generic [ref=e410]: 我的
+    - generic [ref=e411]:
+      - generic [ref=e412]:
+        - generic [ref=e413]:
+          - generic [ref=e414]:
+            - button "公告" [ref=e415] [cursor=pointer]
+            - button "活动" [ref=e416] [cursor=pointer]
+            - button "关于" [ref=e417] [cursor=pointer]
+          - button "关闭公告" [ref=e418] [cursor=pointer]:
+            - img [ref=e419]
+        - generic [ref=e422]:
+          - generic [ref=e424]:
+            - button "🔥 2026世界杯免费转播重磅开启！" [ref=e425] [cursor=pointer]
+            - button "📢 最新版本 V3.0.0 IOS已上线" [ref=e426] [cursor=pointer]
+            - button "📢 影视版本更新说明" [ref=e427] [cursor=pointer]
+            - button "📢 版本更新及反馈公告" [ref=e428] [cursor=pointer]
+            - button "重要通知" [ref=e429] [cursor=pointer]
+            - button "积分兑换规则升级通知" [ref=e430] [cursor=pointer]
+            - button "IOS自定义DNS！" [ref=e431] [cursor=pointer]
+            - button "想要快速升级账号？教你捷径！" [ref=e432] [cursor=pointer]
+            - button "关于旧版app无法进入问题" [ref=e433] [cursor=pointer]
+            - button "积分系统，积分换钱、换话费、换好礼！" [ref=e434] [cursor=pointer]
+            - button "关于积分系统说明" [ref=e435] [cursor=pointer]
+          - generic [ref=e438]:
+            - heading "🔥 2026世界杯免费转播重磅开启！" [level=3] [ref=e439]
+            - paragraph [ref=e441]: 在猎手一起看，2026世界杯，免费实时转播，中文解说
+            - link "点击跳转观看" [ref=e442] [cursor=pointer]:
+              - /url: https://live.4k555.vip
+      - button "关闭公告" [ref=e444] [cursor=pointer]:
+        - img [ref=e445]
+  - text: "0"

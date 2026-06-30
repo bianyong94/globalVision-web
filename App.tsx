@@ -74,6 +74,7 @@ const App = () => {
         <Routes>
           <Route path="/search" element={<Search />} />
           <Route path="/detail/:id" element={<Detail />} />
+          <Route path="/shorts/likes" element={<ShortVideo mode="liked" />} />
           <Route path="*" element={<KeepAliveLayout />} />
         </Routes>
       </Router>

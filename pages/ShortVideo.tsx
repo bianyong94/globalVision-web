@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
-import { useLocation } from "react-router-dom"
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import {
+  ChevronLeft,
   Eye,
   EyeOff,
   Flame,
@@ -15,26 +16,31 @@ import {
   X,
 } from "lucide-react"
 import SEO from "../components/SEO"
-import {
-  fetchShortVideoComments,
-  fetchShortVideoFeed,
-} from "../services/api"
+import { fetchShortVideoComments, fetchShortVideoFeed } from "../services/api"
 import { ShortVideoCommentItem, ShortVideoItem } from "../types"
 import {
   createImageFallbackHandler,
   getProxyUrl,
   normalizeMediaUrl,
 } from "../utils/common"
+import {
+  getLikedShortVideos,
+  subscribeShortVideoLikes,
+  toggleLikedShortVideo,
+} from "../utils/shortVideoLikes"
 
 const FEED_PAGE_SIZE = 5
 const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
+const LIKED_VIEW_STORAGE_KEY = "vastren.short-video.likes-view.v1"
 
 type FeedMode = "latest" | "recommend"
+type ShortVideoViewMode = "feed" | "liked"
 
 type FeedState = {
   activeFeed: FeedMode
   activeIndexByFeed: Record<FeedMode, number>
+  loadedPagesByFeed: Record<FeedMode, number>
 }
 
 const DEFAULT_STATE: FeedState = {
@@ -42,6 +48,10 @@ const DEFAULT_STATE: FeedState = {
   activeIndexByFeed: {
     latest: 0,
     recommend: 0,
+  },
+  loadedPagesByFeed: {
+    latest: 1,
+    recommend: 1,
   },
 }
 
@@ -65,6 +75,18 @@ const readState = (): FeedState => {
             ? parsed.activeIndexByFeed.recommend
             : 0,
       },
+      loadedPagesByFeed: {
+        latest:
+          typeof parsed.loadedPagesByFeed?.latest === "number" &&
+          parsed.loadedPagesByFeed.latest > 0
+            ? parsed.loadedPagesByFeed.latest
+            : 1,
+        recommend:
+          typeof parsed.loadedPagesByFeed?.recommend === "number" &&
+          parsed.loadedPagesByFeed.recommend > 0
+            ? parsed.loadedPagesByFeed.recommend
+            : 1,
+      },
     }
   } catch {
     return DEFAULT_STATE
@@ -75,6 +97,22 @@ const FEED_TABS: Array<{ key: FeedMode; label: string }> = [
   { key: "latest", label: "最新" },
   { key: "recommend", label: "推荐" },
 ]
+
+const readLikedViewState = () => {
+  try {
+    const raw = sessionStorage.getItem(LIKED_VIEW_STORAGE_KEY)
+    if (!raw) return { activeIndex: 0 }
+    const parsed = JSON.parse(raw) as { activeIndex?: number }
+    return {
+      activeIndex:
+        typeof parsed.activeIndex === "number" && parsed.activeIndex >= 0
+          ? parsed.activeIndex
+          : 0,
+    }
+  } catch {
+    return { activeIndex: 0 }
+  }
+}
 
 const formatCount = (value?: string) => {
   if (!value) return "0"
@@ -248,7 +286,9 @@ const CommentSheet = ({
             </div>
           ) : null}
 
-          {!commentsQuery.isLoading && !commentsQuery.isError && comments.length === 0 ? (
+          {!commentsQuery.isLoading &&
+          !commentsQuery.isError &&
+          comments.length === 0 ? (
             <div className="py-12 text-center text-sm text-white/45">
               暂无评论
             </div>
@@ -304,9 +344,11 @@ const ShortVideoSlide = ({
   isActive,
   isPageActive,
   shouldLoad,
+  isLiked,
   isMuted,
   isPaused,
   isCleanMode,
+  onToggleLike,
   onToggleMute,
   onTogglePaused,
   onToggleCleanMode,
@@ -316,9 +358,11 @@ const ShortVideoSlide = ({
   isActive: boolean
   isPageActive: boolean
   shouldLoad: boolean
+  isLiked: boolean
   isMuted: boolean
   isPaused: boolean
   isCleanMode: boolean
+  onToggleLike: () => void
   onToggleMute: () => void
   onTogglePaused: () => void
   onToggleCleanMode: () => void
@@ -530,7 +574,9 @@ const ShortVideoSlide = ({
     return ratio * effectiveDuration
   }
 
-  const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleTrackPointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     event.stopPropagation()
     event.preventDefault()
     handleSeekStart()
@@ -543,7 +589,9 @@ const ShortVideoSlide = ({
     }
   }
 
-  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleTrackPointerMove = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     if (!isSeeking) return
     event.stopPropagation()
     event.preventDefault()
@@ -562,7 +610,9 @@ const ShortVideoSlide = ({
     }
   }
 
-  const handleTrackPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleTrackPointerCancel = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     if (!isSeeking) return
     event.stopPropagation()
     event.preventDefault()
@@ -679,18 +729,19 @@ const ShortVideoSlide = ({
             />
           </div>
 
-          <button className="group flex flex-col items-center gap-1.5 drop-shadow-md transition-transform active:scale-90">
+          <button
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggleLike()
+            }}
+            className="group flex flex-col items-center gap-1.5 drop-shadow-md transition-transform active:scale-90"
+          >
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 backdrop-blur-sm transition group-hover:bg-black/40">
               <Heart
                 size={26}
-                className={
-                  item.isLiked ? "fill-red-500 text-red-500" : "text-white"
-                }
+                className={isLiked ? "fill-red-500 text-red-500" : "text-white"}
               />
             </div>
-            <span className="text-[11px] font-bold tracking-wide">
-              {formatCount(item.likeCount)}
-            </span>
           </button>
 
           <button
@@ -806,32 +857,108 @@ const ShortVideoSlide = ({
   )
 }
 
-const ShortVideo = () => {
+const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   const location = useLocation()
-  const initialState = useMemo(readState, [])
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialState = useMemo(
+    () => (mode === "liked" ? readLikedViewState() : readState()),
+    [mode],
+  )
   const [activeFeed, setActiveFeed] = useState<FeedMode>(
-    initialState.activeFeed,
+    mode === "feed" && "activeFeed" in initialState
+      ? initialState.activeFeed
+      : "latest",
   )
   const [activeIndexByFeed, setActiveIndexByFeed] = useState<
     Record<FeedMode, number>
-  >(initialState.activeIndexByFeed)
+  >(
+    mode === "feed" && "activeIndexByFeed" in initialState
+      ? initialState.activeIndexByFeed
+      : {
+          latest:
+            mode === "liked" && "activeIndex" in initialState
+              ? initialState.activeIndex
+              : 0,
+          recommend: 0,
+        },
+  )
+  const [loadedPagesByFeed, setLoadedPagesByFeed] = useState<
+    Record<FeedMode, number>
+  >(
+    mode === "feed" && "loadedPagesByFeed" in initialState
+      ? initialState.loadedPagesByFeed
+      : DEFAULT_STATE.loadedPagesByFeed,
+  )
+  const [likedItems, setLikedItems] = useState<ShortVideoItem[]>(() =>
+    mode === "liked" ? getLikedShortVideos() : [],
+  )
+  const [likedIds, setLikedIds] = useState<Set<string>>(
+    () => new Set(getLikedShortVideos().map((item) => item.id)),
+  )
   const [isMuted, setIsMuted] = useState(true)
   const [pausedVideoId, setPausedVideoId] = useState<string | null>(null)
   const [isCleanMode, setIsCleanMode] = useState(false)
-  const [commentSheetItem, setCommentSheetItem] = useState<ShortVideoItem | null>(
-    null,
-  )
+  const [commentSheetItem, setCommentSheetItem] =
+    useState<ShortVideoItem | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const restoredFeedRef = useRef<FeedMode | null>(null)
+  const isRestoringRef = useRef(false)
+  const restoreCompletedRef = useRef<Record<FeedMode, boolean>>({
+    latest: false,
+    recommend: false,
+  })
 
-  const isPageActive = location.pathname === "/shorts"
+  const isStandalone = mode === "liked"
+  const isPageActive = isStandalone
+    ? location.pathname === "/shorts/likes"
+    : location.pathname === "/shorts"
+  const activeIndexKey: FeedMode = isStandalone ? "latest" : activeFeed
 
   useEffect(() => {
+    const syncLikes = () => {
+      const nextItems = getLikedShortVideos()
+      setLikedIds(new Set(nextItems.map((item) => item.id)))
+      if (isStandalone) {
+        setLikedItems(nextItems)
+      }
+    }
+
+    syncLikes()
+    return subscribeShortVideoLikes(syncLikes)
+  }, [isStandalone])
+
+  useEffect(() => {
+    if (!isStandalone) return
+    const startId = searchParams.get("start")
+    if (!startId) return
+    const nextIndex = likedItems.findIndex((item) => item.id === startId)
+    if (nextIndex < 0) return
+    setActiveIndexByFeed((current) =>
+      current.latest === nextIndex
+        ? current
+        : { ...current, latest: nextIndex },
+    )
+  }, [isStandalone, likedItems, searchParams])
+
+  useEffect(() => {
+    if (isStandalone) return
     sessionStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ activeFeed, activeIndexByFeed } satisfies FeedState),
+      JSON.stringify({
+        activeFeed,
+        activeIndexByFeed,
+        loadedPagesByFeed,
+      } satisfies FeedState),
     )
-  }, [activeFeed, activeIndexByFeed])
+  }, [activeFeed, activeIndexByFeed, isStandalone, loadedPagesByFeed])
+
+  useEffect(() => {
+    if (!isStandalone) return
+    sessionStorage.setItem(
+      LIKED_VIEW_STORAGE_KEY,
+      JSON.stringify({ activeIndex: activeIndexByFeed.latest || 0 }),
+    )
+  }, [activeIndexByFeed.latest, isStandalone])
 
   const feedQuery = useInfiniteQuery({
     queryKey: ["short-video-feed", activeFeed],
@@ -849,16 +976,29 @@ const ShortVideo = () => {
     gcTime: 1000 * 60 * 30,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    enabled: !isStandalone,
   })
 
-  const items = feedQuery.data?.pages.flatMap((page) => page.list) || []
+  const items = isStandalone
+    ? likedItems
+    : feedQuery.data?.pages.flatMap((page) => page.list) || []
+  const loadedPageCount = feedQuery.data?.pages.length || 0
   const activeIndex = Math.min(
-    activeIndexByFeed[activeFeed] || 0,
+    activeIndexByFeed[activeIndexKey] || 0,
     Math.max(items.length - 1, 0),
   )
 
   useEffect(() => {
-    if (!items.length) return
+    if (isStandalone || !loadedPageCount) return
+    setLoadedPagesByFeed((current) =>
+      current[activeFeed] === loadedPageCount
+        ? current
+        : { ...current, [activeFeed]: loadedPageCount },
+    )
+  }, [activeFeed, isStandalone, loadedPageCount])
+
+  useEffect(() => {
+    if (isStandalone || !items.length) return
     if (
       activeIndex >= items.length - 2 &&
       feedQuery.hasNextPage &&
@@ -868,32 +1008,79 @@ const ShortVideo = () => {
     }
   }, [
     activeIndex,
-    items.length,
+    feedQuery.fetchNextPage,
     feedQuery.hasNextPage,
     feedQuery.isFetchingNextPage,
-    feedQuery.fetchNextPage,
+    isStandalone,
+    items.length,
   ])
 
   useEffect(() => {
     if (!items.length) return
-    if (restoredFeedRef.current === activeFeed) return
-
-    restoredFeedRef.current = activeFeed
     const container = containerRef.current
     if (!container) return
 
-    const nextIndex = Math.min(
-      activeIndexByFeed[activeFeed] || 0,
-      Math.max(items.length - 1, 0),
+    if (!isStandalone && restoreCompletedRef.current[activeFeed]) return
+
+    const savedIndex = activeIndexByFeed[activeIndexKey] || 0
+    const requiredItemCount = Math.max(savedIndex + 1, 1)
+    const savedPageCount = Math.max(
+      loadedPagesByFeed[activeIndexKey] || 1,
+      Math.ceil(requiredItemCount / FEED_PAGE_SIZE),
+    )
+    const requiredLoadedCount = Math.max(
+      requiredItemCount,
+      savedPageCount * FEED_PAGE_SIZE,
     )
 
+    if (
+      !isStandalone &&
+      items.length < requiredLoadedCount &&
+      feedQuery.hasNextPage &&
+      !feedQuery.isFetchingNextPage
+    ) {
+      feedQuery.fetchNextPage()
+      return
+    }
+
+    const nextIndex = Math.min(savedIndex, Math.max(items.length - 1, 0))
+
+    isRestoringRef.current = true
     window.requestAnimationFrame(() => {
       container.scrollTo({
         top: container.clientHeight * nextIndex,
         behavior: "auto",
       })
+
+      window.setTimeout(() => {
+        if (!isStandalone) {
+          restoreCompletedRef.current[activeFeed] = true
+        }
+        isRestoringRef.current = false
+      }, 120)
     })
-  }, [activeFeed, activeIndexByFeed, items.length])
+  }, [
+    activeFeed,
+    activeIndexByFeed,
+    activeIndexKey,
+    feedQuery,
+    isStandalone,
+    items.length,
+    loadedPagesByFeed,
+  ])
+
+  useEffect(() => {
+    if (!isStandalone) return
+    setActiveIndexByFeed((current) => {
+      const nextIndex = Math.min(
+        current.latest || 0,
+        Math.max(items.length - 1, 0),
+      )
+      return current.latest === nextIndex
+        ? current
+        : { ...current, latest: nextIndex }
+    })
+  }, [isStandalone, items.length])
 
   useEffect(() => {
     const container = containerRef.current
@@ -919,12 +1106,12 @@ const ShortVideo = () => {
           )
         }
 
-        if (nextIndex == null) return
+        if (nextIndex == null || isRestoringRef.current) return
 
         setActiveIndexByFeed((current) =>
-          current[activeFeed] === nextIndex
+          current[activeIndexKey] === nextIndex
             ? current
-            : { ...current, [activeFeed]: nextIndex },
+            : { ...current, [activeIndexKey]: nextIndex },
         )
         setPausedVideoId((current) =>
           current && current !== items[nextIndex]?.id ? null : current,
@@ -938,11 +1125,12 @@ const ShortVideo = () => {
 
     slideNodes.forEach((node) => observer.observe(node))
     return () => observer.disconnect()
-  }, [activeFeed, items])
+  }, [activeIndexKey, items])
 
   const handleFeedChange = (feed: FeedMode) => {
-    if (feed === activeFeed) return
-    restoredFeedRef.current = null
+    if (isStandalone || feed === activeFeed) return
+    restoreCompletedRef.current[feed] = false
+    isRestoringRef.current = false
     setPausedVideoId(null)
     setCommentSheetItem(null)
     setActiveFeed(feed)
@@ -952,50 +1140,94 @@ const ShortVideo = () => {
     setPausedVideoId((current) => (current === itemId ? null : itemId))
   }
 
+  const handleToggleLike = (item: ShortVideoItem) => {
+    const nextLiked = toggleLikedShortVideo({
+      ...item,
+      isLiked: !likedIds.has(item.id),
+    })
+
+    setLikedIds((current) => {
+      const next = new Set(current)
+      if (nextLiked) next.add(item.id)
+      else next.delete(item.id)
+      return next
+    })
+
+    if (isStandalone && !nextLiked) {
+      setLikedItems((current) =>
+        current.filter((likedItem) => likedItem.id !== item.id),
+      )
+      setCommentSheetItem((current) =>
+        current?.id === item.id ? null : current,
+      )
+      setPausedVideoId((current) => (current === item.id ? null : current))
+    }
+  }
+
   return (
-    // 使用 fixed 让页面严格卡在底部导航栏之上，防止溢出。
-    // 请确保你们全局的 --bottom-nav-height 设定正确（通常底部 Tab 栏的高度是 3.5rem ~ 4rem）
     <div
       className="fixed inset-x-0 top-0 z-40 bg-black text-white"
       style={{
-        bottom:
-          "calc(var(--bottom-nav-height, 4rem) + env(safe-area-inset-bottom, 0px))",
+        bottom: isStandalone
+          ? "0"
+          : "calc(var(--bottom-nav-height, 4rem) + env(safe-area-inset-bottom, 0px))",
       }}
     >
       <SEO
-        title="短视频"
-        description="短视频沉浸式滑动浏览，支持最新与推荐切换。"
+        title={isStandalone ? "短视频" : "短视频"}
+        description={
+          isStandalone
+            ? "浏览本地保存的喜欢短视频。"
+            : "短视频沉浸式滑动浏览，支持最新与推荐切换。"
+        }
       />
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-50 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
-        <div className="pointer-events-auto mx-auto flex max-w-sm items-center justify-center gap-6">
-          {FEED_TABS.map((tab) => {
-            const active = tab.key === activeFeed
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => handleFeedChange(tab.key)}
-                className={`relative flex items-center justify-center gap-1 py-2 text-[17px] transition-all ${
-                  active
-                    ? "font-bold text-white drop-shadow-md scale-105"
-                    : "font-semibold text-white/60 hover:text-white/80"
-                }`}
-              >
-                {tab.key === "recommend" && active ? (
-                  <Flame size={16} className="text-lime-400" />
-                ) : null}
-                {tab.label}
-                {active && (
-                  <span className="absolute bottom-0 left-1/2 h-[3px] w-6 -translate-x-1/2 rounded-full bg-lime-400 drop-shadow-[0_0_8px_rgba(163,230,53,0.8)]" />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </header>
+      {isStandalone ? (
+        <header className="pointer-events-none absolute inset-x-0 top-0 z-50 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+          <div className="pointer-events-auto flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md active:scale-95"
+              aria-label="返回"
+            >
+              <ChevronLeft size={22} />
+            </button>
+            <div className="rounded-full bg-black/25 px-4 py-2 text-sm font-semibold text-white/90 backdrop-blur-md"></div>
+            <div className="w-10" />
+          </div>
+        </header>
+      ) : (
+        <header className="pointer-events-none absolute inset-x-0 top-0 z-50 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+          <div className="pointer-events-auto mx-auto flex max-w-sm items-center justify-center gap-6">
+            {FEED_TABS.map((tab) => {
+              const active = tab.key === activeFeed
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => handleFeedChange(tab.key)}
+                  className={`relative flex items-center justify-center gap-1 py-2 text-[17px] transition-all ${
+                    active
+                      ? "font-bold text-white drop-shadow-md scale-105"
+                      : "font-semibold text-white/60 hover:text-white/80"
+                  }`}
+                >
+                  {tab.key === "recommend" && active ? (
+                    <Flame size={16} className="text-lime-400" />
+                  ) : null}
+                  {tab.label}
+                  {active && (
+                    <span className="absolute bottom-0 left-1/2 h-[3px] w-6 -translate-x-1/2 rounded-full bg-lime-400 drop-shadow-[0_0_8px_rgba(163,230,53,0.8)]" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </header>
+      )}
 
-      {feedQuery.isLoading && items.length === 0 ? (
+      {!isStandalone && feedQuery.isLoading && items.length === 0 ? (
         <div className="flex h-full items-center justify-center bg-black">
           <div className="flex flex-col items-center gap-3">
             <Loader2 size={32} className="animate-spin text-white/40" />
@@ -1006,7 +1238,7 @@ const ShortVideo = () => {
         </div>
       ) : null}
 
-      {feedQuery.isError && items.length === 0 ? (
+      {!isStandalone && feedQuery.isError && items.length === 0 ? (
         <div className="flex h-full items-center justify-center bg-black px-6">
           <div className="w-full max-w-sm flex flex-col items-center text-center">
             <p className="text-lg font-bold text-white/90">加载失败</p>
@@ -1025,7 +1257,7 @@ const ShortVideo = () => {
         </div>
       ) : null}
 
-      {!feedQuery.isLoading && !feedQuery.isError ? (
+      {(isStandalone || (!feedQuery.isLoading && !feedQuery.isError)) && (
         <div
           ref={containerRef}
           className="h-full w-full snap-y snap-mandatory overflow-y-auto no-scrollbar"
@@ -1043,9 +1275,11 @@ const ShortVideo = () => {
                   isActive={isActive}
                   isPageActive={isPageActive}
                   shouldLoad={Math.abs(index - activeIndex) <= 2}
+                  isLiked={likedIds.has(item.id)}
                   isMuted={isMuted}
                   isPaused={pausedVideoId === item.id}
                   isCleanMode={isCleanMode}
+                  onToggleLike={() => handleToggleLike(item)}
                   onToggleMute={() => setIsMuted((current) => !current)}
                   onTogglePaused={() => handleTogglePaused(item.id)}
                   onToggleCleanMode={() =>
@@ -1057,19 +1291,28 @@ const ShortVideo = () => {
             )
           })}
 
-          {feedQuery.isFetchingNextPage ? (
+          {!isStandalone && feedQuery.isFetchingNextPage ? (
             <div className="flex h-20 items-center justify-center bg-black">
               <Loader2 size={24} className="animate-spin text-white/50" />
             </div>
           ) : null}
         </div>
-      ) : null}
+      )}
 
-      {!feedQuery.isLoading && !feedQuery.isError && items.length === 0 ? (
+      {((!isStandalone && !feedQuery.isLoading && !feedQuery.isError) ||
+        isStandalone) &&
+      items.length === 0 ? (
         <div className="flex h-full items-center justify-center bg-black px-6">
-          <span className="text-white/40 tracking-widest text-sm">
-            暂无更多内容
-          </span>
+          <div className="text-center">
+            <span className="text-white/40 tracking-widest text-sm">
+              {isStandalone ? "还没有喜欢的短视频" : "暂无更多内容"}
+            </span>
+            {isStandalone ? (
+              <p className="mt-3 text-xs text-white/30">
+                在短视频流里点击右侧爱心，这里会自动收集
+              </p>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
