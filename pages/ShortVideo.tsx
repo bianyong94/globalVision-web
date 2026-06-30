@@ -29,10 +29,11 @@ import {
   toggleLikedShortVideo,
 } from "../utils/shortVideoLikes"
 
-const FEED_PAGE_SIZE = 5
+const FEED_PAGE_SIZE = 8
 const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
 const LIKED_VIEW_STORAGE_KEY = "vastren.short-video.likes-view.v1"
+const PROGRESS_STATE_SYNC_MS = 120
 
 type FeedMode = "latest" | "recommend"
 type ShortVideoViewMode = "feed" | "liked"
@@ -344,6 +345,7 @@ const ShortVideoSlide = ({
   isActive,
   isPageActive,
   shouldLoad,
+  preloadMode,
   isLiked,
   isMuted,
   isPaused,
@@ -358,6 +360,7 @@ const ShortVideoSlide = ({
   isActive: boolean
   isPageActive: boolean
   shouldLoad: boolean
+  preloadMode: "auto" | "metadata"
   isLiked: boolean
   isMuted: boolean
   isPaused: boolean
@@ -373,9 +376,14 @@ const ShortVideoSlide = ({
   const longPressTriggeredRef = useRef(false)
   const playbackFrameRef = useRef<number | null>(null)
   const progressTrackRef = useRef<HTMLDivElement | null>(null)
+  const playedProgressRef = useRef<HTMLDivElement | null>(null)
+  const bufferedProgressRef = useRef<HTMLDivElement | null>(null)
+  const currentTimeRef = useRef(0)
+  const bufferedEndRef = useRef(0)
+  const lastProgressStateSyncRef = useRef(0)
 
   const shouldPlay = isPageActive && isActive && !isPaused
-  const poster = getProxyUrl(item.file.thumbnail, { w: 720, q: 72 })
+  const poster = normalizeMediaUrl(item.file.thumbnail)
 
   const [duration, setDuration] = useState<number>(item.file.duration || 0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -402,6 +410,29 @@ const ShortVideoSlide = ({
     shouldPlay &&
     isBuffering &&
     currentTime > 0
+
+  const renderProgress = (
+    playedTime = isSeeking ? seekValue : currentTimeRef.current,
+    bufferedTime = bufferedEndRef.current,
+    durationValue = effectiveDuration,
+  ) => {
+    const playedWidth = `${clamp(playedTime / durationValue, 0, 1) * 100}%`
+    const bufferedWidth = `${clamp(bufferedTime / durationValue, 0, 1) * 100}%`
+
+    if (playedProgressRef.current) {
+      playedProgressRef.current.style.width = playedWidth
+    }
+    if (bufferedProgressRef.current) {
+      bufferedProgressRef.current.style.width = bufferedWidth
+    }
+  }
+
+  const syncProgressState = (now = performance.now()) => {
+    if (now - lastProgressStateSyncRef.current < PROGRESS_STATE_SYNC_MS) return
+    lastProgressStateSyncRef.current = now
+    setCurrentTime(currentTimeRef.current)
+    setBufferedEnd(bufferedEndRef.current)
+  }
 
   useEffect(() => {
     const video = videoRef.current
@@ -433,6 +464,8 @@ const ShortVideoSlide = ({
     setSeekValue(0)
     setIsBoosting(false)
     setIsBuffering(false)
+    currentTimeRef.current = 0
+    bufferedEndRef.current = 0
     longPressTriggeredRef.current = false
     if (longPressTimerRef.current != null) {
       window.clearTimeout(longPressTimerRef.current)
@@ -464,8 +497,10 @@ const ShortVideoSlide = ({
 
     const syncPlaybackProgress = () => {
       if (!videoRef.current) return
-      setCurrentTime(videoRef.current.currentTime || 0)
-      syncBuffered()
+      currentTimeRef.current = videoRef.current.currentTime || 0
+      syncBuffered(false)
+      renderProgress()
+      syncProgressState()
       if (!videoRef.current.paused && !videoRef.current.ended) {
         playbackFrameRef.current =
           window.requestAnimationFrame(syncPlaybackProgress)
@@ -487,11 +522,23 @@ const ShortVideoSlide = ({
     }
   }, [isActive, isPageActive, isSeeking, shouldPlay])
 
-  const syncBuffered = () => {
+  useEffect(() => {
+    if (isSeeking) {
+      renderProgress(seekValue, bufferedEndRef.current)
+      return
+    }
+    renderProgress()
+  }, [effectiveDuration, isSeeking, seekValue])
+
+  const syncBuffered = (commitState = true) => {
     const video = videoRef.current
     if (!video || !video.buffered.length) return
     const end = video.buffered.end(video.buffered.length - 1)
-    setBufferedEnd(end)
+    bufferedEndRef.current = end
+    renderProgress()
+    if (commitState) {
+      setBufferedEnd(end)
+    }
   }
 
   const resetLongPress = () => {
@@ -561,9 +608,11 @@ const ShortVideoSlide = ({
     if (video) {
       video.currentTime = value
     }
+    currentTimeRef.current = value
     setCurrentTime(value)
     setSeekValue(value)
     setIsSeeking(false)
+    renderProgress(value, bufferedEndRef.current)
   }
 
   const getSeekValueFromPointer = (clientX: number) => {
@@ -631,7 +680,7 @@ const ShortVideoSlide = ({
             className="absolute inset-0 h-full w-full object-cover"
             src={normalizeMediaUrl(item.file.resourceURL)}
             poster={poster}
-            preload={isActive ? "auto" : "metadata"}
+            preload={preloadMode}
             playsInline
             loop
             muted={isMuted}
@@ -639,16 +688,21 @@ const ShortVideoSlide = ({
             onLoadedMetadata={(event) => {
               const d = event.currentTarget.duration
               if (Number.isFinite(d) && d > 0) setDuration(d)
+              currentTimeRef.current = event.currentTarget.currentTime || 0
               setIsBuffering(false)
               syncBuffered()
+              renderProgress()
             }}
             onDurationChange={(event) => {
               const d = event.currentTarget.duration
               if (Number.isFinite(d) && d > 0) setDuration(d)
+              renderProgress()
             }}
             onTimeUpdate={(event) => {
-              if (!isSeeking)
-                setCurrentTime(event.currentTarget.currentTime || 0)
+              if (isSeeking) return
+              currentTimeRef.current = event.currentTarget.currentTime || 0
+              renderProgress()
+              syncProgressState()
             }}
             onProgress={syncBuffered}
             onCanPlay={() => setIsBuffering(false)}
@@ -842,12 +896,14 @@ const ShortVideoSlide = ({
 
           {/* 缓冲轨道 */}
           <div
+            ref={bufferedProgressRef}
             className="absolute inset-y-0 left-0 rounded-full bg-white/40 transition-all duration-300"
             style={{ width: `${bufferedRatio * 100}%` }}
           />
 
           {/* 已播放轨道 */}
           <div
+            ref={playedProgressRef}
             className="absolute inset-y-0 left-0 rounded-full bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.28)]"
             style={{ width: `${playedRatio * 100}%` }}
           />
@@ -1274,7 +1330,8 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
                   item={item}
                   isActive={isActive}
                   isPageActive={isPageActive}
-                  shouldLoad={Math.abs(index - activeIndex) <= 2}
+                  shouldLoad={Math.abs(index - activeIndex) <= 3}
+                  preloadMode={index <= activeIndex + 1 && index >= activeIndex - 1 ? "auto" : "metadata"}
                   isLiked={likedIds.has(item.id)}
                   isMuted={isMuted}
                   isPaused={pausedVideoId === item.id}
