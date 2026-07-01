@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
+import type Hls from "hls.js"
 import {
   ChevronLeft,
   Eye,
@@ -17,6 +18,11 @@ import {
   X,
 } from "lucide-react"
 import SEO from "../components/SEO"
+import { configureMobileVideo } from "../components/player/device"
+import {
+  destroyHlsInstance,
+  loadVideoSource,
+} from "../components/player/hls-loader"
 import { fetchShortVideoComments, fetchShortVideoFeed } from "../services/api"
 import { ShortVideoCommentItem, ShortVideoItem } from "../types"
 import {
@@ -40,6 +46,7 @@ const MEDIA_PRELOAD_BEHIND = 1
 const MEDIA_PRELOAD_AHEAD = 2
 const MEDIA_AUTO_PRELOAD_AHEAD = 2
 const VIDEO_PREWARM_BYTES = 1024 * 1024
+const AUTO_PLAY_RETRY_DELAY_MS = 1600
 
 type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
@@ -531,9 +538,11 @@ const ShortVideoSlide = ({
   onOpenComments: () => void
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const hlsRef = useRef<Hls | null>(null)
   const longPressTimerRef = useRef<number | null>(null)
   const longPressTriggeredRef = useRef(false)
   const playbackFrameRef = useRef<number | null>(null)
+  const autoplayRetryTimerRef = useRef<number | null>(null)
   const progressTrackRef = useRef<HTMLDivElement | null>(null)
   const playedProgressRef = useRef<HTMLDivElement | null>(null)
   const bufferedProgressRef = useRef<HTMLDivElement | null>(null)
@@ -605,6 +614,25 @@ const ShortVideoSlide = ({
     }
   }
 
+  const clearAutoplayRetry = () => {
+    if (autoplayRetryTimerRef.current != null) {
+      window.clearTimeout(autoplayRetryTimerRef.current)
+      autoplayRetryTimerRef.current = null
+    }
+  }
+
+  const scheduleAutoplayRetry = () => {
+    clearAutoplayRetry()
+    if (!shouldPlay) return
+    autoplayRetryTimerRef.current = window.setTimeout(() => {
+      autoplayRetryTimerRef.current = null
+      const video = videoRef.current
+      if (!video || !shouldPlay) return
+      if (!video.paused && !video.ended && video.currentTime > 0.05) return
+      requestActivePlayback(video)
+    }, AUTO_PLAY_RETRY_DELAY_MS)
+  }
+
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -614,24 +642,43 @@ const ShortVideoSlide = ({
   useEffect(() => {
     const video = videoRef.current
     if (!video || !shouldLoad) return
-    video.setAttribute("playsinline", "true")
-    video.setAttribute("webkit-playsinline", "true")
-    video.setAttribute("x5-playsinline", "true")
-    video.setAttribute("x5-video-player-type", "h5")
+    configureMobileVideo(video)
     video.setAttribute("x5-video-player-fullscreen", "false")
   }, [shouldLoad])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !shouldLoad) return
+
+    video.defaultMuted = isMuted
+    loadVideoSource(video, item.file.resourceURL, hlsRef, () => {
+      scheduleAutoplayRetry()
+    })
+    scheduleAutoplayRetry()
+
+    return () => {
+      clearAutoplayRetry()
+      destroyHlsInstance(hlsRef.current)
+      hlsRef.current = null
+      video.pause()
+      video.removeAttribute("src")
+      video.load()
+    }
+  }, [isMuted, item.file.resourceURL, shouldLoad])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
     if (!shouldPlay) {
+      clearAutoplayRetry()
       video.pause()
       video.playbackRate = 1
       return
     }
 
     requestActivePlayback(video)
+    scheduleAutoplayRetry()
   }, [isBoosting, shouldPlay])
 
   useEffect(() => {
@@ -673,6 +720,8 @@ const ShortVideoSlide = ({
 
   useEffect(
     () => () => {
+      clearAutoplayRetry()
+      destroyHlsInstance(hlsRef.current)
       if (longPressTimerRef.current != null) {
         window.clearTimeout(longPressTimerRef.current)
       }
@@ -880,7 +929,6 @@ const ShortVideoSlide = ({
             className={`absolute inset-0 z-10 h-full w-full ${
               isLandscape ? "object-contain" : "object-cover"
             }`}
-            src={normalizeMediaUrl(item.file.resourceURL)}
             preload={preloadMode}
             poster={posterUrl || undefined}
             autoPlay={shouldPlay}
@@ -908,6 +956,7 @@ const ShortVideoSlide = ({
             onLoadedData={(event) => {
               syncBuffered()
               requestActivePlayback(event.currentTarget)
+              scheduleAutoplayRetry()
             }}
             onDurationChange={(event) => {
               const d = event.currentTarget.duration
@@ -924,10 +973,21 @@ const ShortVideoSlide = ({
             onCanPlay={(event) => {
               syncBuffered()
               requestActivePlayback(event.currentTarget)
+              scheduleAutoplayRetry()
             }}
             onPlaying={() => {
+              clearAutoplayRetry()
               syncBuffered()
             }}
+            onPause={() => {
+              if (shouldPlay) {
+                scheduleAutoplayRetry()
+              } else {
+                clearAutoplayRetry()
+              }
+            }}
+            onWaiting={scheduleAutoplayRetry}
+            onStalled={scheduleAutoplayRetry}
           />
         ) : null}
 
