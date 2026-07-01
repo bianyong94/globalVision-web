@@ -890,6 +890,39 @@ const filterPlayableShortVideoItems = async (list: ShortVideoItem[]) => {
   return list.filter((_, index) => playableFlags[index])
 }
 
+const fetchShortVideoFeedPage = async (
+  feed: "latest" | "recommend",
+  page: number,
+  pageSize?: number,
+) => {
+  const response = await request<any>(
+    feed === "recommend" ? `/post/recommend/list` : `/post/list`,
+    {
+      params: { page },
+      headers: SHORT_VIDEO_HEADERS,
+    },
+  )
+
+  const list = sanitizeList(
+    Array.isArray(response?.data?.list) ? response.data.list : [],
+  )
+    .map(mapShortVideoItem)
+    .filter(Boolean) as ShortVideoItem[]
+  const playableList = await filterPlayableShortVideoItems(list)
+  const total = Number(response?.data?.total || playableList.length || 0)
+  const resolvedPage = Number(response?.data?.page || page || 1)
+  const resolvedPageSize = Number(
+    response?.data?.pageSize || pageSize || list.length || 5,
+  )
+
+  return {
+    list: playableList,
+    total,
+    page: resolvedPage,
+    pageSize: resolvedPageSize,
+  }
+}
+
 const mapShortVideoCommentItem = (item: any): ShortVideoCommentItem | null => {
   const content = String(item?.content || "").trim()
   const user = item?.user || {}
@@ -1254,29 +1287,21 @@ export const fetchShortVideoFeed = async (
     pageSize?: number
   } = {},
 ): Promise<ShortVideoFeedResult> => {
-  const response = await request<any>(
-    feed === "recommend" ? `/post/recommend/list` : `/post/list`,
-    {
-      params: {
-        page: params.page || 1,
-      },
-      headers: SHORT_VIDEO_HEADERS,
-    },
-  )
+  const requestedPage = Math.max(1, Number(params.page || 1))
+  let result = await fetchShortVideoFeedPage(feed, requestedPage, params.pageSize)
 
-  const list = sanitizeList(
-    Array.isArray(response?.data?.list) ? response.data.list : [],
-  )
-    .map(mapShortVideoItem)
-    .filter(Boolean) as ShortVideoItem[]
-  const playableList = await filterPlayableShortVideoItems(list)
+  if (result.list.length > 0) return result
 
-  return {
-    list: playableList,
-    total: Number(response?.data?.total || playableList.length || 0),
-    page: Number(response?.data?.page || params.page || 1),
-    pageSize: Number(response?.data?.pageSize || params.pageSize || list.length || 5),
+  const maxPage = Math.max(1, Math.ceil(result.total / Math.max(result.pageSize, 1)))
+  let nextPage = result.page + 1
+
+  while (result.list.length === 0 && nextPage <= maxPage) {
+    result = await fetchShortVideoFeedPage(feed, nextPage, params.pageSize)
+    if (result.list.length > 0) return result
+    nextPage = result.page + 1
   }
+
+  return result
 }
 
 export const fetchShortVideoComments = async (
