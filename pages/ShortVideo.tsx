@@ -35,7 +35,7 @@ const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
 const PROGRESS_STATE_SYNC_MS = 120
 const RANDOM_BOOTSTRAP_PAGE = 1
-const RANDOM_RECENT_PAGE_LIMIT = 300
+const RANDOM_RECENT_PAGE_LIMIT = 600
 const MEDIA_PRELOAD_BEHIND = 1
 const MEDIA_PRELOAD_AHEAD = 2
 const MEDIA_AUTO_PRELOAD_AHEAD = 2
@@ -268,7 +268,9 @@ const prewarmVideoBytes = (rawUrl?: string) => {
       },
     })
 
-    const total = parseContentRangeTotal(firstResponse.headers.get("content-range"))
+    const total = parseContentRangeTotal(
+      firstResponse.headers.get("content-range"),
+    )
     await firstResponse.arrayBuffer()
     if (total > VIDEO_PREWARM_BYTES * 2) {
       const tailStart = Math.max(0, total - VIDEO_PREWARM_BYTES)
@@ -1284,14 +1286,13 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     enabled: !isStandalone,
   })
 
-  const items = (isStandalone
+  const items = isStandalone
     ? likedItems
     : activeFeed === "random"
       ? feedQuery.data?.pages.flatMap((page) =>
           shuffleShortVideos(page.list, randomSeed + page.page * 31),
         ) || []
       : feedQuery.data?.pages.flatMap((page) => page.list) || []
-  )
   const loadedPageCount = feedQuery.data?.pages.length || 0
   const activeIndex = Math.min(
     activeIndexByFeed[activeIndexKey] || 0,
