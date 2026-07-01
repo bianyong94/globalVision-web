@@ -35,6 +35,7 @@ const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
 const PROGRESS_STATE_SYNC_MS = 120
 const RANDOM_BOOTSTRAP_PAGE = 1
+const RANDOM_RECENT_PAGE_LIMIT = 300
 const MEDIA_PRELOAD_BEHIND = 1
 const MEDIA_PRELOAD_AHEAD = 2
 const MEDIA_AUTO_PRELOAD_AHEAD = 2
@@ -137,6 +138,11 @@ const shuffleShortVideos = (list: ShortVideoItem[], seed: number) => {
     ;[next[index], next[target]] = [next[target], next[index]]
   }
   return next
+}
+
+const resolveRandomMaxPage = (total: number, pageSize: number) => {
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(pageSize, 1)))
+  return Math.min(totalPages, RANDOM_RECENT_PAGE_LIMIT)
 }
 
 const pickRandomUnseenPage = (
@@ -1236,7 +1242,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
           page: RANDOM_BOOTSTRAP_PAGE,
           pageSize: 1,
         })
-        const maxPage = Math.max(1, Math.ceil(bootstrap.total / FEED_PAGE_SIZE))
+        const maxPage = resolveRandomMaxPage(bootstrap.total, FEED_PAGE_SIZE)
         return fetchNextRandomVideoPage(
           targetFeed,
           maxPage,
@@ -1249,7 +1255,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
         page: RANDOM_BOOTSTRAP_PAGE,
         pageSize: 1,
       })
-      const maxPage = Math.max(1, Math.ceil(bootstrap.total / FEED_PAGE_SIZE))
+      const maxPage = resolveRandomMaxPage(bootstrap.total, FEED_PAGE_SIZE)
       return fetchNextRandomVideoPage(
         targetFeed,
         maxPage,
@@ -1263,7 +1269,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
         return loaded < lastPage.total ? lastPage.page + 1 : undefined
       }
 
-      const maxPage = Math.max(1, Math.ceil(lastPage.total / FEED_PAGE_SIZE))
+      const maxPage = resolveRandomMaxPage(lastPage.total, FEED_PAGE_SIZE)
       const seenPages = new Set(allPages.map((page) => page.page))
       return pickRandomUnseenPage(
         maxPage,
