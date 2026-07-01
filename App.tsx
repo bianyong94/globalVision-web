@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useEffect, useState } from "react"
 import {
   HashRouter as Router,
   Routes,
@@ -17,10 +17,31 @@ import PrivacyPolicy from "./pages/PrivacyPolicy"
 import ShortVideo from "./pages/ShortVideo"
 
 const TAB_PATHS = ["/", "/explore", "/shorts", "/profile"] as const
+type TabPath = (typeof TAB_PATHS)[number]
+
+const isTabPath = (path: string): path is TabPath =>
+  TAB_PATHS.includes(path as TabPath)
+
+const shouldMountTab = (visitedTabs: Set<TabPath>, path: TabPath) =>
+  visitedTabs.has(path)
 
 const KeepAliveLayout = () => {
   const location = useLocation()
-  const isTabPage = TAB_PATHS.includes(location.pathname as any)
+  const isTabPage = isTabPath(location.pathname)
+  const activeTab = isTabPage ? location.pathname : "/"
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabPath>>(
+    () => new Set([activeTab]),
+  )
+
+  useEffect(() => {
+    if (!isTabPage) return
+    setVisitedTabs((current) => {
+      if (current.has(location.pathname)) return current
+      const next = new Set(current)
+      next.add(location.pathname)
+      return next
+    })
+  }, [isTabPage, location.pathname])
 
   return (
     <div className="min-h-screen bg-[#08090f] text-white">
@@ -28,25 +49,25 @@ const KeepAliveLayout = () => {
         className="fixed inset-0 overflow-y-auto"
         style={{ visibility: isTabPage && location.pathname === "/" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/" ? 1 : 0 }}
       >
-        <Home />
+        {shouldMountTab(visitedTabs, "/") ? <Home /> : null}
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"
         style={{ visibility: isTabPage && location.pathname === "/shorts" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/shorts" ? 1 : 0 }}
       >
-        <ShortVideo />
+        {shouldMountTab(visitedTabs, "/shorts") ? <ShortVideo /> : null}
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"
         style={{ visibility: isTabPage && location.pathname === "/explore" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/explore" ? 1 : 0 }}
       >
-        <Explore />
+        {shouldMountTab(visitedTabs, "/explore") ? <Explore /> : null}
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"
         style={{ visibility: isTabPage && location.pathname === "/profile" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/profile" ? 1 : 0 }}
       >
-        <Profile />
+        {shouldMountTab(visitedTabs, "/profile") ? <Profile /> : null}
       </div>
       {isTabPage && <BottomNav />}
     </div>

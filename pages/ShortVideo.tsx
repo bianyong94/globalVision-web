@@ -36,8 +36,9 @@ const STORAGE_KEY = "vastren.short-video.v1"
 const PROGRESS_STATE_SYNC_MS = 120
 const RANDOM_BOOTSTRAP_PAGE = 1
 const MEDIA_PRELOAD_BEHIND = 1
-const MEDIA_PRELOAD_AHEAD = 4
-const MEDIA_AUTO_PRELOAD_AHEAD = 3
+const MEDIA_PRELOAD_AHEAD = 2
+const MEDIA_AUTO_PRELOAD_AHEAD = 2
+const VIDEO_PREWARM_BYTES = 1024 * 1024
 
 type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
@@ -223,6 +224,59 @@ const ensureVideoOriginPreconnect = (url?: string) => {
   link.crossOrigin = "anonymous"
   link.dataset.shortVideoPreconnect = origin
   document.head.appendChild(link)
+}
+
+const videoPrewarmPending = new Map<string, Promise<void>>()
+const videoPrewarmDone = new Set<string>()
+
+const parseContentRangeTotal = (contentRange: string | null) => {
+  if (!contentRange) return 0
+  const match = contentRange.match(/\/(\d+)$/)
+  return match ? Number(match[1]) || 0 : 0
+}
+
+const fetchVideoRange = async (url: string, range: string) => {
+  const response = await fetch(url, {
+    method: "GET",
+    mode: "cors",
+    headers: {
+      Range: range,
+      Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
+    },
+  })
+  await response.arrayBuffer()
+}
+
+const prewarmVideoBytes = (rawUrl?: string) => {
+  if (typeof window === "undefined" || !rawUrl) return
+  const url = normalizeMediaUrl(rawUrl)
+  if (!url || videoPrewarmDone.has(url) || videoPrewarmPending.has(url)) return
+
+  const task = (async () => {
+    const firstResponse = await fetch(url, {
+      method: "GET",
+      mode: "cors",
+      headers: {
+        Range: `bytes=0-${VIDEO_PREWARM_BYTES - 1}`,
+        Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
+      },
+    })
+
+    const total = parseContentRangeTotal(firstResponse.headers.get("content-range"))
+    await firstResponse.arrayBuffer()
+    if (total > VIDEO_PREWARM_BYTES * 2) {
+      const tailStart = Math.max(0, total - VIDEO_PREWARM_BYTES)
+      await fetchVideoRange(url, `bytes=${tailStart}-${total - 1}`)
+    }
+
+    videoPrewarmDone.add(url)
+  })()
+    .catch(() => undefined)
+    .finally(() => {
+      videoPrewarmPending.delete(url)
+    })
+
+  videoPrewarmPending.set(url, task)
 }
 
 const CommentSheet = ({
@@ -480,6 +534,7 @@ const ShortVideoSlide = ({
   const lastProgressStateSyncRef = useRef(0)
 
   const shouldPlay = isPageActive && isActive && !isPaused
+  const posterUrl = getProxyUrl(item.file.thumbnail, { w: 720, q: 78 })
 
   const [duration, setDuration] = useState<number>(item.file.duration || 0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -488,9 +543,7 @@ const ShortVideoSlide = ({
   const [isSeeking, setIsSeeking] = useState(false)
   const [seekValue, setSeekValue] = useState(0)
 
-  const [isBuffering, setIsBuffering] = useState(true)
   const [isBoosting, setIsBoosting] = useState(false)
-  const [isReady, setIsReady] = useState(false)
   const [isLandscape, setIsLandscape] = useState(() => {
     const { width, height } = item.file
     return Boolean(width && height && width >= height * 1.15)
@@ -509,9 +562,8 @@ const ShortVideoSlide = ({
     isActive &&
     isPageActive &&
     shouldPlay &&
-    isBuffering &&
-    currentTime > 0
-  const isVideoVisible = isReady || currentTime > 0
+    currentTime <= 0 &&
+    bufferedEnd <= 0
 
   const renderProgress = (
     playedTime = isSeeking ? seekValue : currentTimeRef.current,
@@ -534,6 +586,15 @@ const ShortVideoSlide = ({
     lastProgressStateSyncRef.current = now
     setCurrentTime(currentTimeRef.current)
     setBufferedEnd(bufferedEndRef.current)
+  }
+
+  const requestActivePlayback = (video: HTMLVideoElement) => {
+    if (!shouldPlay) return
+    video.playbackRate = isBoosting ? 2 : 1
+    const playPromise = video.play()
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => undefined)
+    }
   }
 
   useEffect(() => {
@@ -559,39 +620,17 @@ const ShortVideoSlide = ({
     if (!shouldPlay) {
       video.pause()
       video.playbackRate = 1
-      setIsBuffering(false)
       return
     }
 
-    video.playbackRate = isBoosting ? 2 : 1
-    const playPromise = video.play()
-    if (playPromise && typeof playPromise.catch === "function") {
-      playPromise.catch(() => undefined)
-    }
+    requestActivePlayback(video)
   }, [isBoosting, shouldPlay])
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || !shouldLoad) return
-
-    if (
-      preloadMode === "auto" &&
-      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-    ) {
-      try {
-        video.load()
-      } catch {
-        // ignore reload failures from transient browser state
-      }
-    }
-  }, [preloadMode, shouldLoad, item.file.resourceURL])
 
   useEffect(() => {
     if (isActive) return
     setIsSeeking(false)
     setSeekValue(0)
     setIsBoosting(false)
-    setIsBuffering(false)
     longPressTriggeredRef.current = false
     if (longPressTimerRef.current != null) {
       window.clearTimeout(longPressTimerRef.current)
@@ -602,13 +641,12 @@ const ShortVideoSlide = ({
   useEffect(() => {
     const video = videoRef.current
     if (!shouldLoad) {
-      setIsBuffering(false)
+      bufferedEndRef.current = 0
+      setBufferedEnd(0)
       return
     }
 
     if (video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      setIsReady(true)
-      setIsBuffering(false)
       currentTimeRef.current = video.currentTime || currentTimeRef.current
       syncBuffered()
       renderProgress()
@@ -616,9 +654,14 @@ const ShortVideoSlide = ({
       return
     }
 
-    setIsReady(false)
-    setIsBuffering(true)
+    bufferedEndRef.current = 0
+    setBufferedEnd(0)
   }, [item.file.resourceURL, shouldLoad])
+
+  useEffect(() => {
+    currentTimeRef.current = 0
+    setCurrentTime(0)
+  }, [item.file.resourceURL])
 
   useEffect(
     () => () => {
@@ -826,13 +869,13 @@ const ShortVideoSlide = ({
         {shouldLoad ? (
           <video
             ref={videoRef}
-            className={`absolute inset-0 z-10 h-full w-full transition-opacity duration-200 ${
-              isVideoVisible ? "opacity-100" : "opacity-0"
-            } ${
+            className={`absolute inset-0 z-10 h-full w-full ${
               isLandscape ? "object-contain" : "object-cover"
             }`}
             src={normalizeMediaUrl(item.file.resourceURL)}
             preload={preloadMode}
+            poster={posterUrl || undefined}
+            autoPlay={shouldPlay}
             playsInline
             loop
             muted={isMuted}
@@ -848,22 +891,15 @@ const ShortVideoSlide = ({
                 event.currentTarget.readyState >=
                 HTMLMediaElement.HAVE_CURRENT_DATA
               ) {
-                setIsReady(true)
-                setIsBuffering(false)
+                syncBuffered()
               }
               currentTimeRef.current = event.currentTarget.currentTime || 0
               syncBuffered()
               renderProgress()
             }}
             onLoadedData={(event) => {
-              setIsReady(true)
-              setIsBuffering(false)
-              if (shouldPlay && event.currentTarget.paused) {
-                const playPromise = event.currentTarget.play()
-                if (playPromise && typeof playPromise.catch === "function") {
-                  playPromise.catch(() => undefined)
-                }
-              }
+              syncBuffered()
+              requestActivePlayback(event.currentTarget)
             }}
             onDurationChange={(event) => {
               const d = event.currentTarget.duration
@@ -872,29 +908,17 @@ const ShortVideoSlide = ({
             }}
             onTimeUpdate={(event) => {
               if (isSeeking) return
-              if (event.currentTarget.currentTime > 0 && !isReady) {
-                setIsReady(true)
-              }
               currentTimeRef.current = event.currentTarget.currentTime || 0
               renderProgress()
               syncProgressState()
             }}
             onProgress={syncBuffered}
             onCanPlay={(event) => {
-              setIsReady(true)
-              setIsBuffering(false)
-              if (shouldPlay && event.currentTarget.paused) {
-                const playPromise = event.currentTarget.play()
-                if (playPromise && typeof playPromise.catch === "function") {
-                  playPromise.catch(() => undefined)
-                }
-              }
+              syncBuffered()
+              requestActivePlayback(event.currentTarget)
             }}
-            onCanPlayThrough={() => setIsBuffering(false)}
-            onWaiting={() => setIsBuffering(true)}
             onPlaying={() => {
-              setIsReady(true)
-              setIsBuffering(false)
+              syncBuffered()
             }}
           />
         ) : null}
@@ -1277,6 +1301,14 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     candidates.forEach((item) => {
       ensureVideoOriginPreconnect(item.file.resourceURL)
     })
+    for (
+      let index = activeIndex + 1;
+      index < Math.min(items.length, activeIndex + 4);
+      index += 1
+    ) {
+      ensureVideoOriginPreconnect(items[index]?.file.resourceURL)
+      prewarmVideoBytes(items[index]?.file.resourceURL)
+    }
   }, [activeIndex, items])
 
   useEffect(() => {
