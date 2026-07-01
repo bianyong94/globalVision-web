@@ -47,6 +47,29 @@ const DEFAULT_HEADERS = {
   "Content-Type": "application/json",
 }
 
+const SHORT_VIDEO_HEADERS = {
+  "X-Client-Version": "3101",
+}
+
+const SHORT_VIDEO_PROBE_TIMEOUT_MS = 2500
+const SHORT_VIDEO_PLAYABLE_SUCCESS_TTL_MS = 1000 * 60 * 30
+const SHORT_VIDEO_PLAYABLE_FAILURE_TTL_MS = 1000 * 60 * 5
+const SHORT_VIDEO_PLAYABLE_PROBE_RANGE = "bytes=0-262143"
+const SHORT_VIDEO_PLAYABLE_PROBE_HEADERS = {
+  Accept: "video/*,*/*;q=0.9",
+  Range: SHORT_VIDEO_PLAYABLE_PROBE_RANGE,
+}
+const SHORT_VIDEO_FALLBACK_EXTENSION_RE =
+  /\.(mp4|m4v|mov|webm|m3u8)(?:[?#]|$)/i
+const shortVideoPlayableCache = new Map<
+  string,
+  {
+    expiresAt: number
+    value: boolean
+  }
+>()
+const shortVideoPlayablePending = new Map<string, Promise<boolean>>()
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -682,6 +705,22 @@ const mapDetail = (item: any): MovieDetailItem | null => {
 }
 
 const mapShortVideoItem = (item: any): ShortVideoItem | null => {
+  const itemType = String(item?.type || item?.layout || "").toLowerCase()
+  if (
+    itemType === "ads" ||
+    itemType === "ad" ||
+    item?.ads_info ||
+    item?.ad_info ||
+    item?.is_ads ||
+    item?.is_ad ||
+    item?.jump_url ||
+    item?.jumpUrl ||
+    item?.redirect_url ||
+    item?.redirectUrl
+  ) {
+    return null
+  }
+
   const file = Array.isArray(item?.files) ? item.files[0] : null
   const resourceURL = normalizeImage(file?.resourceURL || file?.resourceUrl)
   const thumbnail = normalizeImage(file?.thumbnail)
@@ -718,6 +757,137 @@ const mapShortVideoItem = (item: any): ShortVideoItem | null => {
       level: user?.level ? String(user.level) : undefined,
     },
   }
+}
+
+const isPlayableShortVideoProbeResponse = (response: Response, url: string) => {
+  if (response.status !== 200 && response.status !== 206) return false
+
+  const contentType = (response.headers.get("content-type") || "")
+    .toLowerCase()
+    .trim()
+
+  if (!contentType) {
+    return SHORT_VIDEO_FALLBACK_EXTENSION_RE.test(url)
+  }
+
+  if (contentType.startsWith("video/")) return true
+  if (
+    contentType.includes("application/octet-stream") ||
+    contentType.includes("application/vnd.apple.mpegurl") ||
+    contentType.includes("application/x-mpegurl")
+  ) {
+    return true
+  }
+  if (
+    contentType.includes("text/html") ||
+    contentType.includes("application/json") ||
+    contentType.includes("text/plain")
+  ) {
+    return false
+  }
+
+  return SHORT_VIDEO_FALLBACK_EXTENSION_RE.test(url)
+}
+
+const findMediaAtomOffset = (bytes: Uint8Array, atom: string) => {
+  const token = encoder.encode(atom)
+  for (let index = 0; index <= bytes.length - token.length; index += 1) {
+    let matched = true
+    for (let offset = 0; offset < token.length; offset += 1) {
+      if (bytes[index + offset] !== token[offset]) {
+        matched = false
+        break
+      }
+    }
+    if (matched) return index
+  }
+  return -1
+}
+
+const hasFastStartMetadata = (
+  contentType: string,
+  url: string,
+  bytes: Uint8Array,
+) => {
+  const normalizedType = contentType.toLowerCase()
+  const isMp4Like =
+    normalizedType.startsWith("video/mp4") ||
+    normalizedType.includes("quicktime") ||
+    normalizedType.includes("application/octet-stream") ||
+    /\.(mp4|m4v|mov)(?:[?#]|$)/i.test(url)
+
+  if (!isMp4Like) return true
+
+  return findMediaAtomOffset(bytes, "moov") >= 0
+}
+
+const probeShortVideoPlayable = async (url: string) => {
+  const normalizedUrl = normalizeImage(url)
+  if (!normalizedUrl) return false
+
+  const now = Date.now()
+  const cached = shortVideoPlayableCache.get(normalizedUrl)
+  if (cached && cached.expiresAt > now) {
+    return cached.value
+  }
+
+  const pending = shortVideoPlayablePending.get(normalizedUrl)
+  if (pending) return pending
+
+  const probe = (async () => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), SHORT_VIDEO_PROBE_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(normalizedUrl, {
+        method: "GET",
+        headers: SHORT_VIDEO_PLAYABLE_PROBE_HEADERS,
+        mode: "cors",
+        cache: "no-store",
+        signal: controller.signal,
+      })
+      const contentType = (response.headers.get("content-type") || "")
+        .toLowerCase()
+        .trim()
+      let playable = isPlayableShortVideoProbeResponse(response, normalizedUrl)
+
+      if (playable) {
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        playable = hasFastStartMetadata(contentType, normalizedUrl, bytes)
+      }
+
+      shortVideoPlayableCache.set(normalizedUrl, {
+        value: playable,
+        expiresAt:
+          now +
+          (playable
+            ? SHORT_VIDEO_PLAYABLE_SUCCESS_TTL_MS
+            : SHORT_VIDEO_PLAYABLE_FAILURE_TTL_MS),
+      })
+
+      return playable
+    } catch {
+      shortVideoPlayableCache.set(normalizedUrl, {
+        value: false,
+        expiresAt: now + SHORT_VIDEO_PLAYABLE_FAILURE_TTL_MS,
+      })
+      return false
+    } finally {
+      window.clearTimeout(timer)
+      shortVideoPlayablePending.delete(normalizedUrl)
+    }
+  })()
+
+  shortVideoPlayablePending.set(normalizedUrl, probe)
+  return probe
+}
+
+const filterPlayableShortVideoItems = async (list: ShortVideoItem[]) => {
+  const playableFlags = await Promise.all(
+    list.map((item) => probeShortVideoPlayable(item.file.resourceURL)),
+  )
+
+  return list.filter((_, index) => playableFlags[index])
 }
 
 const mapShortVideoCommentItem = (item: any): ShortVideoCommentItem | null => {
@@ -1089,8 +1259,8 @@ export const fetchShortVideoFeed = async (
     {
       params: {
         page: params.page || 1,
-        pageSize: params.pageSize || 5,
       },
+      headers: SHORT_VIDEO_HEADERS,
     },
   )
 
@@ -1099,10 +1269,11 @@ export const fetchShortVideoFeed = async (
   )
     .map(mapShortVideoItem)
     .filter(Boolean) as ShortVideoItem[]
+  const playableList = await filterPlayableShortVideoItems(list)
 
   return {
-    list,
-    total: Number(response?.data?.total || list.length || 0),
+    list: playableList,
+    total: Number(response?.data?.total || playableList.length || 0),
     page: Number(response?.data?.page || params.page || 1),
     pageSize: Number(response?.data?.pageSize || params.pageSize || list.length || 5),
   }
@@ -1119,8 +1290,8 @@ export const fetchShortVideoComments = async (
     params: {
       post_id: postId,
       page: params.page || 1,
-      pageSize: params.pageSize || 10,
     },
+    headers: SHORT_VIDEO_HEADERS,
   })
 
   const list = sanitizeList(

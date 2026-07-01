@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import {
   ChevronLeft,
@@ -30,11 +30,14 @@ import {
   toggleLikedShortVideo,
 } from "../utils/shortVideoLikes"
 
-const FEED_PAGE_SIZE = 8
+const FEED_PAGE_SIZE = 5
 const COMMENT_PAGE_SIZE = 10
 const STORAGE_KEY = "vastren.short-video.v1"
 const PROGRESS_STATE_SYNC_MS = 120
 const RANDOM_BOOTSTRAP_PAGE = 1
+const MEDIA_PRELOAD_BEHIND = 1
+const MEDIA_PRELOAD_AHEAD = 4
+const MEDIA_AUTO_PRELOAD_AHEAD = 3
 
 type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
@@ -157,6 +160,36 @@ const pickRandomUnseenPage = (
   return undefined
 }
 
+const fetchNextRandomVideoPage = async (
+  targetFeed: "latest" | "recommend",
+  maxPage: number,
+  seenPages: Set<number>,
+  seed: number,
+) => {
+  const triedPages = new Set(seenPages)
+
+  while (triedPages.size < maxPage) {
+    const page =
+      pickRandomUnseenPage(maxPage, triedPages, seed + triedPages.size * 131) ||
+      1
+    triedPages.add(page)
+
+    const response = await fetchShortVideoFeed(targetFeed, {
+      page,
+      pageSize: FEED_PAGE_SIZE,
+    })
+
+    if (response.list.length > 0 || triedPages.size >= maxPage) {
+      return response
+    }
+  }
+
+  return fetchShortVideoFeed(targetFeed, {
+    page: 1,
+    pageSize: FEED_PAGE_SIZE,
+  })
+}
+
 const formatCount = (value?: string) => {
   if (!value) return "0"
   const normalized = value.trim()
@@ -169,6 +202,28 @@ const formatCount = (value?: string) => {
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max)
+
+const ensureVideoOriginPreconnect = (url?: string) => {
+  if (typeof document === "undefined" || !url) return
+
+  let origin = ""
+  try {
+    origin = new URL(normalizeMediaUrl(url)).origin
+  } catch {
+    return
+  }
+
+  if (!origin) return
+  const selector = `link[data-short-video-preconnect="${origin}"]`
+  if (document.head.querySelector(selector)) return
+
+  const link = document.createElement("link")
+  link.rel = "preconnect"
+  link.href = origin
+  link.crossOrigin = "anonymous"
+  link.dataset.shortVideoPreconnect = origin
+  document.head.appendChild(link)
+}
 
 const CommentSheet = ({
   open,
@@ -425,7 +480,6 @@ const ShortVideoSlide = ({
   const lastProgressStateSyncRef = useRef(0)
 
   const shouldPlay = isPageActive && isActive && !isPaused
-  const poster = normalizeMediaUrl(item.file.thumbnail)
 
   const [duration, setDuration] = useState<number>(item.file.duration || 0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -436,6 +490,11 @@ const ShortVideoSlide = ({
 
   const [isBuffering, setIsBuffering] = useState(true)
   const [isBoosting, setIsBoosting] = useState(false)
+  const [isReady, setIsReady] = useState(false)
+  const [isLandscape, setIsLandscape] = useState(() => {
+    const { width, height } = item.file
+    return Boolean(width && height && width >= height * 1.15)
+  })
 
   // 确保 duration 是有效数值，防止 NaN 导致进度条计算崩溃
   const effectiveDuration =
@@ -452,6 +511,7 @@ const ShortVideoSlide = ({
     shouldPlay &&
     isBuffering &&
     currentTime > 0
+  const isVideoVisible = isReady || currentTime > 0
 
   const renderProgress = (
     playedTime = isSeeking ? seekValue : currentTimeRef.current,
@@ -484,6 +544,16 @@ const ShortVideoSlide = ({
 
   useEffect(() => {
     const video = videoRef.current
+    if (!video || !shouldLoad) return
+    video.setAttribute("playsinline", "true")
+    video.setAttribute("webkit-playsinline", "true")
+    video.setAttribute("x5-playsinline", "true")
+    video.setAttribute("x5-video-player-type", "h5")
+    video.setAttribute("x5-video-player-fullscreen", "false")
+  }, [shouldLoad])
+
+  useEffect(() => {
+    const video = videoRef.current
     if (!video) return
 
     if (!shouldPlay) {
@@ -501,19 +571,54 @@ const ShortVideoSlide = ({
   }, [isBoosting, shouldPlay])
 
   useEffect(() => {
+    const video = videoRef.current
+    if (!video || !shouldLoad) return
+
+    if (
+      preloadMode === "auto" &&
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+      try {
+        video.load()
+      } catch {
+        // ignore reload failures from transient browser state
+      }
+    }
+  }, [preloadMode, shouldLoad, item.file.resourceURL])
+
+  useEffect(() => {
     if (isActive) return
     setIsSeeking(false)
     setSeekValue(0)
     setIsBoosting(false)
     setIsBuffering(false)
-    currentTimeRef.current = 0
-    bufferedEndRef.current = 0
     longPressTriggeredRef.current = false
     if (longPressTimerRef.current != null) {
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
     }
   }, [isActive])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!shouldLoad) {
+      setIsBuffering(false)
+      return
+    }
+
+    if (video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      setIsReady(true)
+      setIsBuffering(false)
+      currentTimeRef.current = video.currentTime || currentTimeRef.current
+      syncBuffered()
+      renderProgress()
+      syncProgressState()
+      return
+    }
+
+    setIsReady(false)
+    setIsBuffering(true)
+  }, [item.file.resourceURL, shouldLoad])
 
   useEffect(
     () => () => {
@@ -716,24 +821,49 @@ const ShortVideoSlide = ({
       onContextMenu={(event) => event.preventDefault()}
     >
       <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-black" aria-hidden="true" />
+
         {shouldLoad ? (
           <video
             ref={videoRef}
-            className="absolute inset-0 h-full w-full object-cover"
+            className={`absolute inset-0 z-10 h-full w-full transition-opacity duration-200 ${
+              isVideoVisible ? "opacity-100" : "opacity-0"
+            } ${
+              isLandscape ? "object-contain" : "object-cover"
+            }`}
             src={normalizeMediaUrl(item.file.resourceURL)}
-            poster={poster}
             preload={preloadMode}
             playsInline
             loop
             muted={isMuted}
             controls={false}
             onLoadedMetadata={(event) => {
+              const { videoWidth, videoHeight } = event.currentTarget
               const d = event.currentTarget.duration
+              if (videoWidth > 0 && videoHeight > 0) {
+                setIsLandscape(videoWidth >= videoHeight * 1.15)
+              }
               if (Number.isFinite(d) && d > 0) setDuration(d)
+              if (
+                event.currentTarget.readyState >=
+                HTMLMediaElement.HAVE_CURRENT_DATA
+              ) {
+                setIsReady(true)
+                setIsBuffering(false)
+              }
               currentTimeRef.current = event.currentTarget.currentTime || 0
-              setIsBuffering(false)
               syncBuffered()
               renderProgress()
+            }}
+            onLoadedData={(event) => {
+              setIsReady(true)
+              setIsBuffering(false)
+              if (shouldPlay && event.currentTarget.paused) {
+                const playPromise = event.currentTarget.play()
+                if (playPromise && typeof playPromise.catch === "function") {
+                  playPromise.catch(() => undefined)
+                }
+              }
             }}
             onDurationChange={(event) => {
               const d = event.currentTarget.duration
@@ -742,28 +872,34 @@ const ShortVideoSlide = ({
             }}
             onTimeUpdate={(event) => {
               if (isSeeking) return
+              if (event.currentTarget.currentTime > 0 && !isReady) {
+                setIsReady(true)
+              }
               currentTimeRef.current = event.currentTarget.currentTime || 0
               renderProgress()
               syncProgressState()
             }}
             onProgress={syncBuffered}
-            onCanPlay={() => setIsBuffering(false)}
+            onCanPlay={(event) => {
+              setIsReady(true)
+              setIsBuffering(false)
+              if (shouldPlay && event.currentTarget.paused) {
+                const playPromise = event.currentTarget.play()
+                if (playPromise && typeof playPromise.catch === "function") {
+                  playPromise.catch(() => undefined)
+                }
+              }
+            }}
             onCanPlayThrough={() => setIsBuffering(false)}
             onWaiting={() => setIsBuffering(true)}
-            onPlaying={() => setIsBuffering(false)}
+            onPlaying={() => {
+              setIsReady(true)
+              setIsBuffering(false)
+            }}
           />
-        ) : poster ? (
-          <img
-            src={poster}
-            alt={item.description || item.user.nickname}
-            className="absolute inset-0 h-full w-full object-cover opacity-80"
-            loading="lazy"
-            decoding="async"
-            onError={createImageFallbackHandler(item.file.thumbnail)}
-          />
-        ) : (
-          <div className="absolute inset-0 h-full w-full bg-[#111]" />
-        )}
+        ) : null}
+
+        <div className="absolute inset-0 h-full w-full bg-[#111]" />
       </div>
 
       <button
@@ -921,17 +1057,25 @@ const ShortVideoSlide = ({
       >
         <div
           ref={progressTrackRef}
-          className={`relative w-full rounded-full transition-all duration-200 ${isSeeking ? "h-[6px]" : "h-[2px] group-hover/slider:h-[4px]"}`}
+          className="relative h-12 w-full"
           onPointerDown={handleTrackPointerDown}
           onPointerMove={handleTrackPointerMove}
           onPointerUp={handleTrackPointerUp}
           onPointerCancel={handleTrackPointerCancel}
         >
           {/* 背景轨道 */}
-          <div className="absolute inset-0 rounded-full bg-white/20" />
+          <div
+            className={`absolute inset-x-0 bottom-0 rounded-full bg-white/20 transition-all duration-200 ${
+              isSeeking ? "h-[6px]" : "h-[2px] group-hover/slider:h-[4px]"
+            }`}
+          />
 
           {showProgressLoading ? (
-            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+            <div
+              className={`pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden rounded-full transition-all duration-200 ${
+                isSeeking ? "h-[6px]" : "h-[2px] group-hover/slider:h-[4px]"
+              }`}
+            >
               <div className="short-video-progress-loading absolute inset-y-0 left-0 w-24 rounded-full" />
             </div>
           ) : null}
@@ -939,14 +1083,18 @@ const ShortVideoSlide = ({
           {/* 缓冲轨道 */}
           <div
             ref={bufferedProgressRef}
-            className="absolute inset-y-0 left-0 rounded-full bg-white/40 transition-all duration-300"
+            className={`absolute bottom-0 left-0 rounded-full bg-white/40 transition-all duration-300 ${
+              isSeeking ? "h-[6px]" : "h-[2px] group-hover/slider:h-[4px]"
+            }`}
             style={{ width: `${bufferedRatio * 100}%` }}
           />
 
           {/* 已播放轨道 */}
           <div
             ref={playedProgressRef}
-            className="absolute inset-y-0 left-0 rounded-full bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.28)]"
+            className={`absolute bottom-0 left-0 rounded-full bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.28)] ${
+              isSeeking ? "h-[6px]" : "h-[2px] group-hover/slider:h-[4px]"
+            }`}
             style={{ width: `${playedRatio * 100}%` }}
           />
         </div>
@@ -958,6 +1106,7 @@ const ShortVideoSlide = ({
 const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   const location = useLocation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const initialState = useMemo(() => readState(), [mode])
   const [activeFeed, setActiveFeed] = useState<FeedMode>(
     mode === "feed" && "activeFeed" in initialState
@@ -972,6 +1121,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
       : {
           latest: 0,
           recommend: 0,
+          random: 0,
         },
   )
   const [loadedPagesByFeed, setLoadedPagesByFeed] = useState<
@@ -995,7 +1145,6 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   const [randomSeed, setRandomSeed] = useState(() => Date.now())
   const containerRef = useRef<HTMLDivElement | null>(null)
   const isRestoringRef = useRef(false)
-  const wasPageActiveRef = useRef(false)
   const restoreCompletedRef = useRef<Record<FeedMode, boolean>>({
     latest: false,
     recommend: false,
@@ -1033,23 +1182,6 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     )
   }, [activeFeed, activeIndexByFeed, isStandalone, loadedPagesByFeed])
 
-  useEffect(() => {
-    if (isStandalone) return
-
-    if (!wasPageActiveRef.current && isPageActive && activeFeed === "random") {
-      restoreCompletedRef.current.random = false
-      isRestoringRef.current = false
-      setPausedVideoId(null)
-      setCommentSheetItem(null)
-      setActiveIndexByFeed((current) =>
-        current.random === 0 ? current : { ...current, random: 0 },
-      )
-      setRandomSeed(Date.now())
-    }
-
-    wasPageActiveRef.current = isPageActive
-  }, [activeFeed, isPageActive, isStandalone])
-
   const feedQuery = useInfiniteQuery({
     queryKey: [
       "short-video-feed",
@@ -1069,10 +1201,24 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
 
       const requestedPage = Number(pageParam || 0)
       if (requestedPage > 0) {
-        return fetchShortVideoFeed(targetFeed, {
+        const response = await fetchShortVideoFeed(targetFeed, {
           page: requestedPage,
           pageSize: FEED_PAGE_SIZE,
         })
+
+        if (response.list.length > 0) return response
+
+        const bootstrap = await fetchShortVideoFeed(targetFeed, {
+          page: RANDOM_BOOTSTRAP_PAGE,
+          pageSize: 1,
+        })
+        const maxPage = Math.max(1, Math.ceil(bootstrap.total / FEED_PAGE_SIZE))
+        return fetchNextRandomVideoPage(
+          targetFeed,
+          maxPage,
+          new Set([requestedPage]),
+          randomSeed + requestedPage * 97,
+        )
       }
 
       const bootstrap = await fetchShortVideoFeed(targetFeed, {
@@ -1080,13 +1226,12 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
         pageSize: 1,
       })
       const maxPage = Math.max(1, Math.ceil(bootstrap.total / FEED_PAGE_SIZE))
-      const randomPage =
-        pickRandomUnseenPage(maxPage, new Set(), randomSeed) || 1
-
-      return fetchShortVideoFeed(targetFeed, {
-        page: randomPage,
-        pageSize: FEED_PAGE_SIZE,
-      })
+      return fetchNextRandomVideoPage(
+        targetFeed,
+        maxPage,
+        new Set(),
+        randomSeed,
+      )
     },
     getNextPageParam: (lastPage, allPages) => {
       if (activeFeed !== "random") {
@@ -1109,19 +1254,30 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     enabled: !isStandalone,
   })
 
-  const items = isStandalone
+  const items = (isStandalone
     ? likedItems
     : activeFeed === "random"
-      ? shuffleShortVideos(
-          feedQuery.data?.pages.flatMap((page) => page.list) || [],
-          randomSeed,
-        )
+      ? feedQuery.data?.pages.flatMap((page) =>
+          shuffleShortVideos(page.list, randomSeed + page.page * 31),
+        ) || []
       : feedQuery.data?.pages.flatMap((page) => page.list) || []
+  )
   const loadedPageCount = feedQuery.data?.pages.length || 0
   const activeIndex = Math.min(
     activeIndexByFeed[activeIndexKey] || 0,
     Math.max(items.length - 1, 0),
   )
+
+  useEffect(() => {
+    if (!items.length) return
+    const candidates = items.slice(
+      activeIndex,
+      Math.min(items.length, activeIndex + MEDIA_AUTO_PRELOAD_AHEAD + 1),
+    )
+    candidates.forEach((item) => {
+      ensureVideoOriginPreconnect(item.file.resourceURL)
+    })
+  }, [activeIndex, items])
 
   useEffect(() => {
     if (isStandalone || !loadedPageCount) return
@@ -1262,19 +1418,35 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     return () => observer.disconnect()
   }, [activeIndexKey, items])
 
+  const refreshRandomFeed = () => {
+    restoreCompletedRef.current.random = false
+    isRestoringRef.current = false
+    setPausedVideoId(null)
+    setCommentSheetItem(null)
+    setActiveIndexByFeed((current) => ({ ...current, random: 0 }))
+    setLoadedPagesByFeed((current) => ({ ...current, random: 1 }))
+    setRandomSeed(Date.now())
+  }
+
   const handleFeedChange = (feed: FeedMode) => {
-    if (isStandalone || feed === activeFeed) return
+    if (isStandalone) return
+    if (feed === activeFeed) {
+      if (feed === "random") {
+        refreshRandomFeed()
+      }
+      return
+    }
     restoreCompletedRef.current[feed] = false
     isRestoringRef.current = false
     setPausedVideoId(null)
     setCommentSheetItem(null)
-    if (feed === "random") {
-      setActiveIndexByFeed((current) =>
-        current.random === 0 ? current : { ...current, random: 0 },
-      )
-      setRandomSeed(Date.now())
-    }
     setActiveFeed(feed)
+    if (
+      feed === "random" &&
+      !queryClient.getQueryData(["short-video-feed", "random", randomSeed])
+    ) {
+      refreshRandomFeed()
+    }
   }
 
   const handleTogglePaused = (itemId: string) => {
@@ -1407,6 +1579,14 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
         >
           {items.map((item, index) => {
             const isActive = index === activeIndex
+            const shouldLoad =
+              index >= activeIndex - MEDIA_PRELOAD_BEHIND &&
+              index <= activeIndex + MEDIA_PRELOAD_AHEAD
+            const preloadMode =
+              index <= activeIndex + MEDIA_AUTO_PRELOAD_AHEAD &&
+              index >= activeIndex - MEDIA_PRELOAD_BEHIND
+                ? "auto"
+                : "metadata"
             return (
               <div
                 key={item.id}
@@ -1417,8 +1597,8 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
                   item={item}
                   isActive={isActive}
                   isPageActive={isPageActive}
-                  shouldLoad={Math.abs(index - activeIndex) <= 3}
-                  preloadMode={index <= activeIndex + 1 && index >= activeIndex - 1 ? "auto" : "metadata"}
+                  shouldLoad={shouldLoad}
+                  preloadMode={preloadMode}
                   isLiked={likedIds.has(item.id)}
                   isMuted={isMuted}
                   isPaused={pausedVideoId === item.id}
