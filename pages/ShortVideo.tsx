@@ -21,6 +21,7 @@ import SEO from "../components/SEO"
 import { configureMobileVideo } from "../components/player/device"
 import {
   destroyHlsInstance,
+  isM3u8Url,
   loadVideoSource,
 } from "../components/player/hls-loader"
 import { fetchShortVideoComments, fetchShortVideoFeed } from "../services/api"
@@ -44,9 +45,11 @@ const RANDOM_BOOTSTRAP_PAGE = 1
 const RANDOM_RECENT_PAGE_LIMIT = 600
 const MEDIA_PRELOAD_BEHIND = 1
 const MEDIA_PRELOAD_AHEAD = 2
-const MEDIA_AUTO_PRELOAD_AHEAD = 2
+const MEDIA_AUTO_PRELOAD_AHEAD = 1
 const VIDEO_PREWARM_BYTES = 1024 * 1024
 const AUTO_PLAY_RETRY_DELAY_MS = 1600
+const VIDEO_PREWARM_DELAY_MS = 700
+const VIDEO_PREWARM_AHEAD_COUNT = 1
 
 type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
@@ -264,6 +267,7 @@ const prewarmVideoBytes = (rawUrl?: string) => {
   if (typeof window === "undefined" || !rawUrl) return
   const url = normalizeMediaUrl(rawUrl)
   if (!url || videoPrewarmDone.has(url) || videoPrewarmPending.has(url)) return
+  if (isM3u8Url(url)) return
 
   const task = (async () => {
     const firstResponse = await fetch(url, {
@@ -1236,6 +1240,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     useState<ShortVideoItem | null>(null)
   const [randomSeed, setRandomSeed] = useState(() => Date.now())
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const prewarmTimerRef = useRef<number | null>(null)
   const isRestoringRef = useRef(false)
   const restoreCompletedRef = useRef<Record<FeedMode, boolean>>({
     latest: false,
@@ -1361,6 +1366,11 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
 
   useEffect(() => {
     if (!items.length) return
+    if (prewarmTimerRef.current != null) {
+      window.clearTimeout(prewarmTimerRef.current)
+      prewarmTimerRef.current = null
+    }
+
     const candidates = items.slice(
       activeIndex,
       Math.min(items.length, activeIndex + MEDIA_AUTO_PRELOAD_AHEAD + 1),
@@ -1368,13 +1378,25 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     candidates.forEach((item) => {
       ensureVideoOriginPreconnect(item.file.resourceURL)
     })
-    for (
-      let index = activeIndex + 1;
-      index < Math.min(items.length, activeIndex + 4);
-      index += 1
-    ) {
-      ensureVideoOriginPreconnect(items[index]?.file.resourceURL)
-      prewarmVideoBytes(items[index]?.file.resourceURL)
+
+    prewarmTimerRef.current = window.setTimeout(() => {
+      prewarmTimerRef.current = null
+      for (
+        let index = activeIndex + 1;
+        index <
+        Math.min(items.length, activeIndex + VIDEO_PREWARM_AHEAD_COUNT + 1);
+        index += 1
+      ) {
+        ensureVideoOriginPreconnect(items[index]?.file.resourceURL)
+        prewarmVideoBytes(items[index]?.file.resourceURL)
+      }
+    }, VIDEO_PREWARM_DELAY_MS)
+
+    return () => {
+      if (prewarmTimerRef.current != null) {
+        window.clearTimeout(prewarmTimerRef.current)
+        prewarmTimerRef.current = null
+      }
     }
   }, [activeIndex, items])
 
@@ -1488,7 +1510,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
 
         for (const entry of entries) {
           const ratio = entry.intersectionRatio
-          if (!entry.isIntersecting || ratio < 0.6 || ratio < bestRatio)
+          if (!entry.isIntersecting || ratio < 0.45 || ratio < bestRatio)
             continue
           bestRatio = ratio
           nextIndex = Number(
@@ -1509,7 +1531,7 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
       },
       {
         root: container,
-        threshold: [0.6, 0.75, 0.95],
+        threshold: [0.45, 0.6, 0.8],
       },
     )
 
