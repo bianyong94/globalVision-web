@@ -338,9 +338,9 @@ const Detail = () => {
     [resolvedPlayUrl],
   )
 
-  const relatedItems = Array.isArray(relatedQuery.data)
-    ? relatedQuery.data.filter((item) => item.id !== detail?.id)
-    : relatedQuery.data?.list?.filter((item) => item.id !== detail?.id) || []
+  const relatedItems = (relatedQuery.data || []).filter(
+    (item) => item.id !== detail?.id,
+  )
   const comments = commentsQuery.data?.list || []
 
   const safeDescription = useMemo(() => {

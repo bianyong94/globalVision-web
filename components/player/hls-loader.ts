@@ -1,23 +1,47 @@
-import Hls from "hls.js"
+import type Hls from "hls.js"
 import { normalizeMediaUrl } from "../../utils/common"
 
 export const isM3u8Url = (url: string) => /\.m3u8(?:$|[?#])/i.test(url)
 
-const createHls = (onFatal?: () => void) => {
-  const hls = new Hls({
+type HlsProfile = "vod" | "short"
+
+type VideoSourceOptions = {
+  profile?: HlsProfile
+  shouldAutoPlay?: () => boolean
+}
+
+type HlsConstructor = typeof import("hls.js")["default"]
+
+let hlsConstructorPromise: Promise<HlsConstructor> | null = null
+const sourceLoadGeneration = new WeakMap<HTMLVideoElement, number>()
+
+const getHlsConstructor = () => {
+  hlsConstructorPromise ||= import("hls.js").then((module) => module.default)
+  return hlsConstructorPromise
+}
+
+const createHls = (
+  HlsImpl: HlsConstructor,
+  profile: HlsProfile,
+  onFatal?: () => void,
+) => {
+  const isShortVideo = profile === "short"
+  const hls = new HlsImpl({
     enableWorker: true,
     lowLatencyMode: false,
 
-    // Buffer: allow aggressive forward buffering (especially while paused)
-    maxBufferLength: 60,
-    maxMaxBufferLength: 600,
-    maxBufferSize: 120 * 1000 * 1000,
-    backBufferLength: 15,
+    // Short feeds keep a small rolling buffer so the active item cannot consume
+    // all memory/bandwidth. Long-form playback can still buffer aggressively.
+    maxBufferLength: isShortVideo ? 12 : 60,
+    maxMaxBufferLength: isShortVideo ? 30 : 600,
+    maxBufferSize: (isShortVideo ? 24 : 120) * 1000 * 1000,
+    backBufferLength: isShortVideo ? 5 : 15,
 
     // Fast start: auto-select quality based on bandwidth, prefetch first fragment
     startLevel: -1,
     startFragPrefetch: true,
     testBandwidth: true,
+    capLevelToPlayerSize: true,
 
     // Seek tolerance: handle small gaps after seeking without stalling
     maxBufferHole: 0.5,
@@ -46,12 +70,14 @@ const createHls = (onFatal?: () => void) => {
   })
 
   let networkRetryCount = 0
+  let mediaRetryCount = 0
   const MAX_NETWORK_RETRIES = 3
+  const MAX_MEDIA_RETRIES = 2
 
-  hls.on(Hls.Events.ERROR, (_event, data) => {
+  hls.on(HlsImpl.Events.ERROR, (_event, data) => {
     if (!data.fatal) return
     switch (data.type) {
-      case Hls.ErrorTypes.NETWORK_ERROR:
+      case HlsImpl.ErrorTypes.NETWORK_ERROR:
         if (networkRetryCount < MAX_NETWORK_RETRIES) {
           networkRetryCount++
           hls.startLoad()
@@ -60,8 +86,17 @@ const createHls = (onFatal?: () => void) => {
           onFatal?.()
         }
         break
-      case Hls.ErrorTypes.MEDIA_ERROR:
-        hls.recoverMediaError()
+      case HlsImpl.ErrorTypes.MEDIA_ERROR:
+        if (mediaRetryCount < MAX_MEDIA_RETRIES) {
+          mediaRetryCount += 1
+          if (mediaRetryCount === MAX_MEDIA_RETRIES) {
+            hls.swapAudioCodec()
+          }
+          hls.recoverMediaError()
+        } else {
+          hls.destroy()
+          onFatal?.()
+        }
         break
       default:
         hls.destroy()
@@ -70,8 +105,9 @@ const createHls = (onFatal?: () => void) => {
     }
   })
 
-  hls.on(Hls.Events.FRAG_LOADED, () => {
+  hls.on(HlsImpl.Events.FRAG_LOADED, () => {
     networkRetryCount = 0
+    mediaRetryCount = 0
   })
 
   return hls
@@ -82,14 +118,24 @@ export const destroyHlsInstance = (hls: Hls | null) => {
   hls.destroy()
 }
 
+export const cancelPendingVideoSourceLoad = (video: HTMLVideoElement) => {
+  sourceLoadGeneration.set(
+    video,
+    (sourceLoadGeneration.get(video) || 0) + 1,
+  )
+}
+
 export const loadVideoSource = (
   video: HTMLVideoElement,
   rawUrl: string,
   hlsRef: { current: Hls | null },
   onFatal?: () => void,
+  options: VideoSourceOptions = {},
 ) => {
   const url = normalizeMediaUrl(rawUrl)
   if (!url) return
+  const generation = (sourceLoadGeneration.get(video) || 0) + 1
+  sourceLoadGeneration.set(video, generation)
 
   destroyHlsInstance(hlsRef.current)
   hlsRef.current = null
@@ -98,21 +144,31 @@ export const loadVideoSource = (
   video.load()
 
   if (isM3u8Url(url)) {
-    if (Hls.isSupported()) {
-      const hls = createHls(onFatal)
-      hls.loadSource(url)
-      hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {})
-      })
-      hlsRef.current = hls
-      return
-    }
-
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url
       return
     }
+
+    void getHlsConstructor()
+      .then((HlsImpl) => {
+        if (sourceLoadGeneration.get(video) !== generation) return
+        if (!HlsImpl.isSupported()) {
+          onFatal?.()
+          return
+        }
+
+        const hls = createHls(HlsImpl, options.profile || "vod", onFatal)
+        hls.attachMedia(video)
+        hls.loadSource(url)
+        hls.on(HlsImpl.Events.MANIFEST_PARSED, () => {
+          if (options.shouldAutoPlay?.() ?? true) {
+            video.play().catch(() => {})
+          }
+        })
+        hlsRef.current = hls
+      })
+      .catch(() => onFatal?.())
+    return
   }
 
   video.src = url

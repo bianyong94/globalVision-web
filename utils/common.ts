@@ -4,7 +4,7 @@ interface ProxyOptions {
   forceProxy?: boolean
 }
 
-const IMAGE_PROXY_BASE = "https://wsrv.nl/"
+const IMAGE_PROXY_BASE = String(import.meta.env.VITE_IMAGE_PROXY_BASE || "").trim()
 const IMAGE_PLACEHOLDER =
   "data:image/svg+xml;charset=utf-8," +
   encodeURIComponent(
@@ -21,8 +21,14 @@ export const normalizeMediaUrl = (url?: string) => {
 
 const isProxyableUrl = (url: string) => /^https?:\/\//i.test(url)
 
-const isImageProxyUrl = (url: string) =>
-  /^https:\/\/(?:wsrv\.nl|images\.weserv\.nl)\//i.test(url)
+const isImageProxyUrl = (url: string) => {
+  if (!IMAGE_PROXY_BASE) return false
+  try {
+    return new URL(url).origin === new URL(IMAGE_PROXY_BASE, location.origin).origin
+  } catch {
+    return false
+  }
+}
 
 const BYPASS_PROXY_HOSTS = [
   /(?:^|\.)baidu\.com$/i,
@@ -42,6 +48,10 @@ const shouldBypassProxy = (url: string) => {
 export const getProxyUrl = (url?: string, options: ProxyOptions = {}) => {
   const normalized = normalizeMediaUrl(url)
   if (!normalized) return ""
+  // Mainland users should hit the image origin directly by default. The old
+  // public wsrv.nl hop added a slow, cross-border request to every image.
+  // Deployments with a first-party image CDN can opt in via this env value.
+  if (!IMAGE_PROXY_BASE) return normalized
   if (!options.forceProxy && !options.w && !options.q) return normalized
   if (!isProxyableUrl(normalized)) return normalized
   if (isImageProxyUrl(normalized)) return normalized
@@ -64,12 +74,34 @@ export const createImageFallbackHandler =
     const img = e.currentTarget
     const fallback = normalizeMediaUrl(fallbackUrl)
 
-    if (img.dataset.fallbackStage !== "1" && fallback && img.src !== fallback) {
+    if (
+      img.dataset.fallbackStage !== "1" &&
+      fallback &&
+      IMAGE_PROXY_BASE &&
+      !isImageProxyUrl(img.src)
+    ) {
       img.dataset.fallbackStage = "1"
-      img.src = fallback
+      img.src = getProxyUrl(fallback, { forceProxy: true, q: 72 })
       return
     }
 
     img.dataset.fallbackStage = "2"
     img.src = IMAGE_PLACEHOLDER
   }
+
+export const getSignedMediaExpiry = (url?: string) => {
+  const normalized = normalizeMediaUrl(url)
+  if (!normalized) return 0
+
+  try {
+    const rawExpiry = new URL(normalized).searchParams.get("t")
+    if (!rawExpiry) return 0
+    const numericExpiry = Number(rawExpiry)
+    if (!Number.isFinite(numericExpiry) || numericExpiry <= 0) return 0
+    return numericExpiry < 10_000_000_000
+      ? numericExpiry * 1000
+      : numericExpiry
+  } catch {
+    return 0
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { Suspense, lazy, useEffect, useState } from "react"
 import {
   HashRouter as Router,
   Routes,
@@ -8,13 +8,14 @@ import {
 import { Toaster } from "react-hot-toast"
 import BottomNav from "./components/BottomNav"
 import InstallPwaPrompt from "./components/InstallPwaPrompt"
-import Home from "./pages/Home"
-import Explore from "./pages/Explore"
-import Search from "./pages/Search"
-import Detail from "./pages/Detail"
-import Profile from "./pages/Profile"
-import PrivacyPolicy from "./pages/PrivacyPolicy"
-import ShortVideo from "./pages/ShortVideo"
+
+const Home = lazy(() => import("./pages/Home"))
+const Explore = lazy(() => import("./pages/Explore"))
+const Search = lazy(() => import("./pages/Search"))
+const Detail = lazy(() => import("./pages/Detail"))
+const Profile = lazy(() => import("./pages/Profile"))
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"))
+const ShortVideo = lazy(() => import("./pages/ShortVideo"))
 
 const TAB_PATHS = ["/", "/explore", "/shorts", "/profile"] as const
 type TabPath = (typeof TAB_PATHS)[number]
@@ -28,17 +29,20 @@ const shouldMountTab = (visitedTabs: Set<TabPath>, path: TabPath) =>
 const KeepAliveLayout = () => {
   const location = useLocation()
   const isTabPage = isTabPath(location.pathname)
-  const activeTab = isTabPage ? location.pathname : "/"
+  const activeTab: TabPath = isTabPath(location.pathname)
+    ? location.pathname
+    : "/"
   const [visitedTabs, setVisitedTabs] = useState<Set<TabPath>>(
     () => new Set([activeTab]),
   )
 
   useEffect(() => {
     if (!isTabPage) return
+    const tabPath = location.pathname as TabPath
     setVisitedTabs((current) => {
-      if (current.has(location.pathname)) return current
+      if (current.has(tabPath)) return current
       const next = new Set(current)
-      next.add(location.pathname)
+      next.add(tabPath)
       return next
     })
   }, [isTabPage, location.pathname])
@@ -91,16 +95,20 @@ const App = () => {
         }}
       />
 
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <InstallPwaPrompt />
-        <Routes>
-          <Route path="/search" element={<Search />} />
-          <Route path="/detail/:id" element={<Detail />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/shorts/likes" element={<ShortVideo mode="liked" />} />
-          <Route path="*" element={<KeepAliveLayout />} />
-        </Routes>
-      </Router>
+      <Suspense
+        fallback={<div className="min-h-screen bg-[#08090f]" aria-hidden="true" />}
+      >
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <InstallPwaPrompt />
+          <Routes>
+            <Route path="/search" element={<Search />} />
+            <Route path="/detail/:id" element={<Detail />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/shorts/likes" element={<ShortVideo mode="liked" />} />
+            <Route path="*" element={<KeepAliveLayout />} />
+          </Routes>
+        </Router>
+      </Suspense>
     </>
   )
 }

@@ -1,7 +1,11 @@
 import React, { useEffect, useRef } from "react"
 import type Hls from "hls.js"
 import { configureMobileVideo } from "./player/device"
-import { destroyHlsInstance, loadVideoSource } from "./player/hls-loader"
+import {
+  cancelPendingVideoSourceLoad,
+  destroyHlsInstance,
+  loadVideoSource,
+} from "./player/hls-loader"
 import { normalizeMediaUrl } from "../utils/common"
 import "./player/native-player.css"
 
@@ -99,6 +103,7 @@ const Player: React.FC<PlayerProps> = ({
 
     return () => {
       clearStallTimer()
+      cancelPendingVideoSourceLoad(video)
       video.removeEventListener("timeupdate", onTimeUpdateEvent)
       video.removeEventListener("ended", onEndedEvent)
       video.removeEventListener("error", handleError)

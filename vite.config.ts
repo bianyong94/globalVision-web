@@ -41,17 +41,21 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: true,
           // 缓存所有静态资源 (JS, CSS, Fonts...)
           globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
+          // HLS is a large optional player. Do not let service-worker install
+          // compete with MP4 startup by precaching it on every device.
+          globIgnores: ["**/hls-*.js"],
 
-          // 核心：缓存来自 API 的图片
+          // Cache direct source images as well as an optional first-party image
+          // proxy. Repeated visits should not pay another cross-origin request.
           runtimeCaching: [
             {
-              urlPattern: ({ url }) =>
-                url.pathname.startsWith("/api/image/proxy"),
-              handler: "StaleWhileRevalidate",
+              urlPattern: ({ request, url }) =>
+                request.destination === "image" && url.protocol === "https:",
+              handler: "CacheFirst",
               options: {
-                cacheName: "api-images-cache",
+                cacheName: "media-images-v2",
                 expiration: {
-                  maxEntries: 300,
+                  maxEntries: 500,
                   maxAgeSeconds: 30 * 24 * 60 * 60,
                 },
                 cacheableResponse: {

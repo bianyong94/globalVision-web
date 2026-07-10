@@ -1,6 +1,6 @@
-import forge from "node-forge"
 import {
   AppConfig,
+  AppScreenFilterGroup,
   AppTopNav,
   HomeDataV2,
   HomeSectionItem,
@@ -362,39 +362,24 @@ const md5Bytes = (input: Uint8Array) => {
 }
 
 const hmacMd5 = (message: string, key: string) => {
-  const hmac = forge.hmac.create()
-  hmac.start("md5", key)
-  hmac.update(message, "utf8")
-  return hmac.digest().toHex()
-}
+  const blockSize = 64
+  let keyBytes = toBytes(key)
+  if (keyBytes.length > blockSize) keyBytes = md5Bytes(keyBytes)
 
-const forgePublicKey = forge.pki.publicKeyFromPem(PUBLIC_KEY)
-
-const toUrlSafeBase64 = (value: string) =>
-  forge.util
-    .encode64(value)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "")
-
-const encryptWithPublicKey = (message: string) => {
-  const binaryMessage = forge.util.encodeUtf8(message)
-  const maxChunkSize = Math.floor(forgePublicKey.n.bitLength() / 8) - 11
-
-  if (maxChunkSize <= 0) {
-    throw new Error("Invalid RSA key")
+  const paddedKey = new Uint8Array(blockSize)
+  paddedKey.set(keyBytes)
+  const innerPad = new Uint8Array(blockSize)
+  const outerPad = new Uint8Array(blockSize)
+  for (let index = 0; index < blockSize; index += 1) {
+    innerPad[index] = paddedKey[index] ^ 0x36
+    outerPad[index] = paddedKey[index] ^ 0x5c
   }
 
-  const encryptedChunks: string[] = []
-  for (let index = 0; index < binaryMessage.length; index += maxChunkSize) {
-    const chunk = binaryMessage.slice(index, index + maxChunkSize)
-    encryptedChunks.push(
-      forgePublicKey.encrypt(chunk, "RSAES-PKCS1-V1_5"),
-    )
-  }
-
-  return toUrlSafeBase64(encryptedChunks.join(""))
+  const innerHash = md5Bytes(concatBytes(innerPad, toBytes(message)))
+  return bytesToHex(md5Bytes(concatBytes(outerPad, innerHash)))
 }
+
+const encryptWithPublicKey = rsaEncryptPkcs1
 
 const signPack = (pack: string) => hmacMd5(pack, SIGN_KEY)
 
@@ -420,27 +405,20 @@ const decryptResponseText = async (response: Response) => {
   const encryptedText = trimmed.replace(/^"|"$/g, "")
 
   try {
-    const normalized = encryptedText.replace(/-/g, "+").replace(/_/g, "/")
-    const padded = normalized.padEnd(
-      Math.ceil(normalized.length / 4) * 4,
-      "=",
+    const encryptedBytes = base64ToBytes(encryptedText)
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      toBytes(AES_KEY),
+      { name: "AES-CBC" },
+      false,
+      ["decrypt"],
     )
-    const decipher = forge.cipher.createDecipher(
-      "AES-CBC",
-      forge.util.createBuffer(AES_KEY),
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-CBC", iv: toBytes(AES_IV) },
+      cryptoKey,
+      encryptedBytes,
     )
-    decipher.start({
-      iv: forge.util.createBuffer(AES_IV),
-    })
-    decipher.update(
-      forge.util.createBuffer(
-        forge.util.decode64(padded),
-      ),
-    )
-    if (!decipher.finish()) {
-      throw new Error("Decrypt failed")
-    }
-    return JSON.parse(decipher.output.toString(forge.util.Utf8))
+    return JSON.parse(fromBytes(new Uint8Array(decrypted)))
   } catch {
     try {
       return JSON.parse(trimmed)
@@ -915,9 +893,10 @@ export const fetchAppConfig = async (): Promise<AppConfig> => {
 }
 
 export const fetchHomeData = async (): Promise<HomeData> => {
-  const config = await fetchAppConfig().catch(() => null)
   const recommendPayload = await request<any>(`/movie/index_recommend`)
-  const normalized = await normalizeHome(config, recommendPayload, false)
+  // Home already requests app config independently. Keeping this request free
+  // of that dependency removes a duplicate request and a full network waterfall.
+  const normalized = await normalizeHome(null, recommendPayload, false)
 
   return {
     banners: normalized.banners.map((item) => ({
@@ -927,10 +906,10 @@ export const fetchHomeData = async (): Promise<HomeData> => {
       backdrop: item.backdrop,
       remarks: item.dynamic || item.label || "",
       year: item.year,
-      rating: Number(item.score || 0),
-      category: item.type_name || "",
+      rating: 0,
+      category: "",
       tags: item.label ? [item.label] : [],
-      overview: item.highlight || item.dynamic || "",
+      overview: item.content || item.dynamic || "",
       source_ref: item.click || "",
     })),
     sections: normalized.sections.map((section) => ({

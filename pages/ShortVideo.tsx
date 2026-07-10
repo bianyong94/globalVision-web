@@ -20,6 +20,7 @@ import {
 import SEO from "../components/SEO"
 import { configureMobileVideo } from "../components/player/device"
 import {
+  cancelPendingVideoSourceLoad,
   destroyHlsInstance,
   isM3u8Url,
   loadVideoSource,
@@ -28,6 +29,7 @@ import { fetchShortVideoComments, fetchShortVideoFeed } from "../services/api"
 import { ShortVideoCommentItem, ShortVideoItem } from "../types"
 import {
   createImageFallbackHandler,
+  getSignedMediaExpiry,
   getProxyUrl,
   normalizeMediaUrl,
 } from "../utils/common"
@@ -43,13 +45,11 @@ const STORAGE_KEY = "vastren.short-video.v1"
 const PROGRESS_STATE_SYNC_MS = 120
 const RANDOM_BOOTSTRAP_PAGE = 1
 const RANDOM_RECENT_PAGE_LIMIT = 600
-const MEDIA_PRELOAD_BEHIND = 1
-const MEDIA_PRELOAD_AHEAD = 2
-const MEDIA_AUTO_PRELOAD_AHEAD = 1
-const VIDEO_PREWARM_BYTES = 1024 * 1024
 const AUTO_PLAY_RETRY_DELAY_MS = 1600
-const VIDEO_PREWARM_DELAY_MS = 700
-const VIDEO_PREWARM_AHEAD_COUNT = 1
+const STALL_RECOVERY_DELAY_MS = 3500
+const MAX_STALL_RECOVERIES = 2
+const SIGNED_URL_REFRESH_WINDOW_MS = 2 * 60 * 1000
+const MP4_METADATA_TAIL_BYTES = 256 * 1024
 
 type FeedMode = "latest" | "recommend" | "random"
 type ShortVideoViewMode = "feed" | "liked"
@@ -242,60 +242,40 @@ const ensureVideoOriginPreconnect = (url?: string) => {
   document.head.appendChild(link)
 }
 
-const videoPrewarmPending = new Map<string, Promise<void>>()
-const videoPrewarmDone = new Set<string>()
+const mp4MetadataPrimePending = new Map<string, Promise<void>>()
 
-const parseContentRangeTotal = (contentRange: string | null) => {
-  if (!contentRange) return 0
-  const match = contentRange.match(/\/(\d+)$/)
-  return match ? Number(match[1]) || 0 : 0
-}
-
-const fetchVideoRange = async (url: string, range: string) => {
-  const response = await fetch(url, {
-    method: "GET",
-    mode: "cors",
-    headers: {
-      Range: range,
-      Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
-    },
-  })
-  await response.arrayBuffer()
-}
-
-const prewarmVideoBytes = (rawUrl?: string) => {
-  if (typeof window === "undefined" || !rawUrl) return
+const primeMp4MetadataTail = (rawUrl: string) => {
   const url = normalizeMediaUrl(rawUrl)
-  if (!url || videoPrewarmDone.has(url) || videoPrewarmPending.has(url)) return
-  if (isM3u8Url(url)) return
+  const pending = mp4MetadataPrimePending.get(url)
+  if (pending) return pending
 
   const task = (async () => {
-    const firstResponse = await fetch(url, {
-      method: "GET",
-      mode: "cors",
-      headers: {
-        Range: `bytes=0-${VIDEO_PREWARM_BYTES - 1}`,
-        Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
-      },
-    })
-
-    const total = parseContentRangeTotal(
-      firstResponse.headers.get("content-range"),
-    )
-    await firstResponse.arrayBuffer()
-    if (total > VIDEO_PREWARM_BYTES * 2) {
-      const tailStart = Math.max(0, total - VIDEO_PREWARM_BYTES)
-      await fetchVideoRange(url, `bytes=${tailStart}-${total - 1}`)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 4000)
+    try {
+      const response = await fetch(url, {
+        mode: "cors",
+        cache: "force-cache",
+        signal: controller.signal,
+        headers: {
+          Range: `bytes=-${MP4_METADATA_TAIL_BYTES}`,
+          Accept: "video/mp4,video/*;q=0.9,*/*;q=0.8",
+        },
+      })
+      if (response.status !== 206) {
+        await response.body?.cancel()
+        return
+      }
+      await response.arrayBuffer()
+    } finally {
+      window.clearTimeout(timeout)
     }
-
-    videoPrewarmDone.add(url)
   })()
     .catch(() => undefined)
-    .finally(() => {
-      videoPrewarmPending.delete(url)
-    })
+    .finally(() => mp4MetadataPrimePending.delete(url))
 
-  videoPrewarmPending.set(url, task)
+  mp4MetadataPrimePending.set(url, task)
+  return task
 }
 
 const CommentSheet = ({
@@ -525,6 +505,8 @@ const ShortVideoSlide = ({
   onTogglePaused,
   onToggleCleanMode,
   onOpenComments,
+  onPlaybackReady,
+  onPlaybackFailure,
 }: {
   item: ShortVideoItem
   isActive: boolean
@@ -540,6 +522,8 @@ const ShortVideoSlide = ({
   onTogglePaused: () => void
   onToggleCleanMode: () => void
   onOpenComments: () => void
+  onPlaybackReady: () => void
+  onPlaybackFailure: () => void
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -547,6 +531,11 @@ const ShortVideoSlide = ({
   const longPressTriggeredRef = useRef(false)
   const playbackFrameRef = useRef<number | null>(null)
   const autoplayRetryTimerRef = useRef<number | null>(null)
+  const stallRecoveryTimerRef = useRef<number | null>(null)
+  const stallRecoveryCountRef = useRef(0)
+  const lastRecoveryPositionRef = useRef(0)
+  const shouldPlayRef = useRef(false)
+  const playbackCallbacksRef = useRef({ onPlaybackReady, onPlaybackFailure })
   const progressTrackRef = useRef<HTMLDivElement | null>(null)
   const playedProgressRef = useRef<HTMLDivElement | null>(null)
   const bufferedProgressRef = useRef<HTMLDivElement | null>(null)
@@ -555,6 +544,10 @@ const ShortVideoSlide = ({
   const lastProgressStateSyncRef = useRef(0)
 
   const shouldPlay = isPageActive && isActive && !isPaused
+  shouldPlayRef.current = shouldPlay
+  playbackCallbacksRef.current = { onPlaybackReady, onPlaybackFailure }
+  const isHlsSource = isM3u8Url(item.file.resourceURL)
+  const shouldAttachSource = shouldLoad && (!isHlsSource || isActive)
   const posterUrl = getProxyUrl(item.file.thumbnail, { w: 720, q: 78 })
 
   const [duration, setDuration] = useState<number>(item.file.duration || 0)
@@ -637,6 +630,84 @@ const ShortVideoSlide = ({
     }, AUTO_PLAY_RETRY_DELAY_MS)
   }
 
+  const clearStallRecovery = () => {
+    if (stallRecoveryTimerRef.current != null) {
+      window.clearTimeout(stallRecoveryTimerRef.current)
+      stallRecoveryTimerRef.current = null
+    }
+  }
+
+  const recoverPlayback = () => {
+    const video = videoRef.current
+    if (!video || !shouldPlayRef.current) return
+
+    if (stallRecoveryCountRef.current >= MAX_STALL_RECOVERIES) {
+      playbackCallbacksRef.current.onPlaybackFailure()
+      return
+    }
+
+    stallRecoveryCountRef.current += 1
+    const resumeTime = video.currentTime || 0
+    lastRecoveryPositionRef.current = resumeTime
+
+    const reloadSource = () => {
+      if (videoRef.current !== video || !shouldPlayRef.current) return
+      loadVideoSource(
+        video,
+        item.file.resourceURL,
+        hlsRef,
+        () => scheduleStallRecovery(250),
+        {
+          profile: "short",
+          shouldAutoPlay: () => shouldPlayRef.current,
+        },
+      )
+
+      if (resumeTime > 0) {
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            if (
+              Number.isFinite(video.duration) &&
+              video.duration > resumeTime
+            ) {
+              video.currentTime = resumeTime
+            }
+          },
+          { once: true },
+        )
+      }
+
+      scheduleAutoplayRetry()
+      scheduleStallRecovery()
+    }
+
+    if (!isHlsSource && stallRecoveryCountRef.current === 1) {
+      void primeMp4MetadataTail(item.file.resourceURL).then(reloadSource)
+    } else {
+      reloadSource()
+    }
+  }
+
+  const scheduleStallRecovery = (delay = STALL_RECOVERY_DELAY_MS) => {
+    clearStallRecovery()
+    if (!shouldPlayRef.current) return
+    const stalledAt = videoRef.current?.currentTime || 0
+
+    stallRecoveryTimerRef.current = window.setTimeout(() => {
+      stallRecoveryTimerRef.current = null
+      const video = videoRef.current
+      if (!video || !shouldPlayRef.current) return
+      if (
+        video.currentTime > stalledAt + 0.15 ||
+        (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !video.paused)
+      ) {
+        return
+      }
+      recoverPlayback()
+    }, delay)
+  }
+
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -652,23 +723,35 @@ const ShortVideoSlide = ({
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !shouldLoad) return
+    if (!video || !shouldAttachSource) return
 
     video.defaultMuted = isMuted
-    loadVideoSource(video, item.file.resourceURL, hlsRef, () => {
-      scheduleAutoplayRetry()
-    })
+    stallRecoveryCountRef.current = 0
+    lastRecoveryPositionRef.current = 0
+    loadVideoSource(
+      video,
+      item.file.resourceURL,
+      hlsRef,
+      () => scheduleStallRecovery(250),
+      {
+        profile: "short",
+        shouldAutoPlay: () => shouldPlayRef.current,
+      },
+    )
     scheduleAutoplayRetry()
+    if (shouldPlayRef.current) scheduleStallRecovery()
 
     return () => {
       clearAutoplayRetry()
+      clearStallRecovery()
+      cancelPendingVideoSourceLoad(video)
       destroyHlsInstance(hlsRef.current)
       hlsRef.current = null
       video.pause()
       video.removeAttribute("src")
       video.load()
     }
-  }, [isMuted, item.file.resourceURL, shouldLoad])
+  }, [item.file.resourceURL, shouldAttachSource])
 
   useEffect(() => {
     const video = videoRef.current
@@ -676,6 +759,7 @@ const ShortVideoSlide = ({
 
     if (!shouldPlay) {
       clearAutoplayRetry()
+      clearStallRecovery()
       video.pause()
       video.playbackRate = 1
       return
@@ -699,7 +783,7 @@ const ShortVideoSlide = ({
 
   useEffect(() => {
     const video = videoRef.current
-    if (!shouldLoad) {
+    if (!shouldAttachSource) {
       bufferedEndRef.current = 0
       setBufferedEnd(0)
       return
@@ -715,7 +799,7 @@ const ShortVideoSlide = ({
 
     bufferedEndRef.current = 0
     setBufferedEnd(0)
-  }, [item.file.resourceURL, shouldLoad])
+  }, [item.file.resourceURL, shouldAttachSource])
 
   useEffect(() => {
     currentTimeRef.current = 0
@@ -725,6 +809,7 @@ const ShortVideoSlide = ({
   useEffect(
     () => () => {
       clearAutoplayRetry()
+      clearStallRecovery()
       destroyHlsInstance(hlsRef.current)
       if (longPressTimerRef.current != null) {
         window.clearTimeout(longPressTimerRef.current)
@@ -927,7 +1012,7 @@ const ShortVideoSlide = ({
       <div className="absolute inset-0 z-0">
         <div className="absolute inset-0 bg-black" aria-hidden="true" />
 
-        {shouldLoad ? (
+        {shouldAttachSource ? (
           <video
             ref={videoRef}
             className={`absolute inset-0 z-10 h-full w-full ${
@@ -970,10 +1055,16 @@ const ShortVideoSlide = ({
             onTimeUpdate={(event) => {
               if (isSeeking) return
               currentTimeRef.current = event.currentTarget.currentTime || 0
+              if (
+                currentTimeRef.current > lastRecoveryPositionRef.current + 5
+              ) {
+                stallRecoveryCountRef.current = 0
+                lastRecoveryPositionRef.current = currentTimeRef.current
+              }
               renderProgress()
               syncProgressState()
             }}
-            onProgress={syncBuffered}
+            onProgress={() => syncBuffered()}
             onCanPlay={(event) => {
               syncBuffered()
               requestActivePlayback(event.currentTarget)
@@ -981,7 +1072,9 @@ const ShortVideoSlide = ({
             }}
             onPlaying={() => {
               clearAutoplayRetry()
+              clearStallRecovery()
               syncBuffered()
+              playbackCallbacksRef.current.onPlaybackReady()
             }}
             onPause={() => {
               if (shouldPlay) {
@@ -990,8 +1083,15 @@ const ShortVideoSlide = ({
                 clearAutoplayRetry()
               }
             }}
-            onWaiting={scheduleAutoplayRetry}
-            onStalled={scheduleAutoplayRetry}
+            onWaiting={() => {
+              scheduleAutoplayRetry()
+              scheduleStallRecovery()
+            }}
+            onStalled={() => {
+              scheduleAutoplayRetry()
+              scheduleStallRecovery()
+            }}
+            onError={() => scheduleStallRecovery(250)}
           />
         ) : null}
 
@@ -1235,12 +1335,13 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
   )
   const [isMuted, setIsMuted] = useState(true)
   const [pausedVideoId, setPausedVideoId] = useState<string | null>(null)
+  const [playbackReadyId, setPlaybackReadyId] = useState<string | null>(null)
   const [isCleanMode, setIsCleanMode] = useState(false)
   const [commentSheetItem, setCommentSheetItem] =
     useState<ShortVideoItem | null>(null)
   const [randomSeed, setRandomSeed] = useState(() => Date.now())
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const prewarmTimerRef = useRef<number | null>(null)
+  const lastFeedRecoveryRef = useRef(0)
   const isRestoringRef = useRef(false)
   const restoreCompletedRef = useRef<Record<FeedMode, boolean>>({
     latest: false,
@@ -1363,42 +1464,43 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     activeIndexByFeed[activeIndexKey] || 0,
     Math.max(items.length - 1, 0),
   )
+  const shouldLimitPreload = useMemo(() => {
+    if (typeof navigator === "undefined") return false
+    const connection = (
+      navigator as Navigator & {
+        connection?: { saveData?: boolean; effectiveType?: string }
+      }
+    ).connection
+    return Boolean(
+      connection?.saveData || /(^|-)2g$/i.test(connection?.effectiveType || ""),
+    )
+  }, [])
 
   useEffect(() => {
     if (!items.length) return
-    if (prewarmTimerRef.current != null) {
-      window.clearTimeout(prewarmTimerRef.current)
-      prewarmTimerRef.current = null
-    }
-
-    const candidates = items.slice(
-      activeIndex,
-      Math.min(items.length, activeIndex + MEDIA_AUTO_PRELOAD_AHEAD + 1),
-    )
+    const candidates = items.slice(activeIndex, activeIndex + 2)
     candidates.forEach((item) => {
       ensureVideoOriginPreconnect(item.file.resourceURL)
     })
-
-    prewarmTimerRef.current = window.setTimeout(() => {
-      prewarmTimerRef.current = null
-      for (
-        let index = activeIndex + 1;
-        index <
-        Math.min(items.length, activeIndex + VIDEO_PREWARM_AHEAD_COUNT + 1);
-        index += 1
-      ) {
-        ensureVideoOriginPreconnect(items[index]?.file.resourceURL)
-        prewarmVideoBytes(items[index]?.file.resourceURL)
-      }
-    }, VIDEO_PREWARM_DELAY_MS)
-
-    return () => {
-      if (prewarmTimerRef.current != null) {
-        window.clearTimeout(prewarmTimerRef.current)
-        prewarmTimerRef.current = null
-      }
-    }
   }, [activeIndex, items])
+
+  useEffect(() => {
+    if (!isPageActive || isStandalone || !items.length) return
+    const activeUrl = items[activeIndex]?.file.resourceURL
+    const expiresAt = getSignedMediaExpiry(activeUrl)
+    if (!expiresAt) return
+
+    const refreshDelay = expiresAt - Date.now() - SIGNED_URL_REFRESH_WINDOW_MS
+    if (refreshDelay <= 0) {
+      void feedQuery.refetch()
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      if (isPageActive) void feedQuery.refetch()
+    }, refreshDelay)
+    return () => window.clearTimeout(timer)
+  }, [activeIndex, isPageActive, isStandalone, items])
 
   useEffect(() => {
     if (isStandalone || !loadedPageCount) return
@@ -1574,6 +1676,25 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
     setPausedVideoId((current) => (current === itemId ? null : itemId))
   }
 
+  const handlePlaybackFailure = () => {
+    const now = Date.now()
+    if (!isStandalone && now - lastFeedRecoveryRef.current >= 30_000) {
+      lastFeedRecoveryRef.current = now
+      void feedQuery.refetch()
+      return
+    }
+
+    const container = containerRef.current
+    if (container && activeIndex < items.length - 1) {
+      container.scrollTo({
+        top: container.clientHeight * (activeIndex + 1),
+        behavior: "smooth",
+      })
+    } else if (!isStandalone) {
+      void feedQuery.refetch()
+    }
+  }
+
   const handleToggleLike = (item: ShortVideoItem) => {
     const nextLiked = toggleLikedShortVideo({
       ...item,
@@ -1701,13 +1822,11 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
           {items.map((item, index) => {
             const isActive = index === activeIndex
             const shouldLoad =
-              index >= activeIndex - MEDIA_PRELOAD_BEHIND &&
-              index <= activeIndex + MEDIA_PRELOAD_AHEAD
+              isActive ||
+              (index === activeIndex + 1 &&
+                playbackReadyId === items[activeIndex]?.id)
             const preloadMode =
-              index <= activeIndex + MEDIA_AUTO_PRELOAD_AHEAD &&
-              index >= activeIndex - MEDIA_PRELOAD_BEHIND
-                ? "auto"
-                : "metadata"
+              isActive || !shouldLimitPreload ? "auto" : "metadata"
             return (
               <div
                 key={item.id}
@@ -1731,6 +1850,11 @@ const ShortVideo = ({ mode = "feed" }: { mode?: ShortVideoViewMode }) => {
                     setIsCleanMode((current) => !current)
                   }
                   onOpenComments={() => setCommentSheetItem(item)}
+                  onPlaybackReady={() => {
+                    lastFeedRecoveryRef.current = 0
+                    setPlaybackReadyId(item.id)
+                  }}
+                  onPlaybackFailure={handlePlaybackFailure}
                 />
               </div>
             )

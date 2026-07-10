@@ -3,6 +3,7 @@ export type VideoWithCast = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void
   webkitEnterFullScreen?: () => void
   webkitExitFullscreen?: () => void
+  webkitRequestFullscreen?: () => Promise<void> | void
   webkitDisplayingFullscreen?: boolean
   disableRemotePlayback?: boolean
 }
