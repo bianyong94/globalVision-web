@@ -15,9 +15,8 @@ const Search = lazy(() => import("./pages/Search"))
 const Detail = lazy(() => import("./pages/Detail"))
 const Profile = lazy(() => import("./pages/Profile"))
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"))
-const ShortVideo = lazy(() => import("./pages/ShortVideo"))
 
-const TAB_PATHS = ["/", "/explore", "/shorts", "/profile"] as const
+const TAB_PATHS = ["/", "/explore", "/profile"] as const
 type TabPath = (typeof TAB_PATHS)[number]
 
 const isTabPath = (path: string): path is TabPath =>
@@ -54,12 +53,6 @@ const KeepAliveLayout = () => {
         style={{ visibility: isTabPage && location.pathname === "/" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/" ? 1 : 0 }}
       >
         {shouldMountTab(visitedTabs, "/") ? <Home /> : null}
-      </div>
-      <div
-        className="fixed inset-0 overflow-y-auto"
-        style={{ visibility: isTabPage && location.pathname === "/shorts" ? "visible" : "hidden", zIndex: isTabPage && location.pathname === "/shorts" ? 1 : 0 }}
-      >
-        {shouldMountTab(visitedTabs, "/shorts") ? <ShortVideo /> : null}
       </div>
       <div
         className="fixed inset-0 overflow-y-auto"
@@ -104,7 +97,6 @@ const App = () => {
             <Route path="/search" element={<Search />} />
             <Route path="/detail/:id" element={<Detail />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-            <Route path="/shorts/likes" element={<ShortVideo mode="liked" />} />
             <Route path="*" element={<KeepAliveLayout />} />
           </Routes>
         </Router>
