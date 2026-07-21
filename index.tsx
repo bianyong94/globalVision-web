@@ -1,5 +1,6 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
+import { Analytics } from "@vercel/analytics/react"
 import App from "./App"
 // 1. 引入 React Query
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -38,6 +39,7 @@ root.render(
     <QueryClientProvider client={queryClient}>
       <HelmetProvider>
         <App />
+        <Analytics />
       </HelmetProvider>
     </QueryClientProvider>
   </React.StrictMode>,

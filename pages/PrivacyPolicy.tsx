@@ -25,10 +25,21 @@ const PrivacyPolicy = () => {
           </div>
           <div className="text-sm leading-relaxed text-gray-400 bg-white/5 p-4 rounded-xl">
             当前版本以本地使用为主。为了提供更顺手的浏览体验，应用会在您的设备浏览器中保存少量本地数据，
-            主要包括观看历史、短视频喜欢列表、搜索历史以及页面展示状态。这些数据默认保存在当前设备的
+            主要包括观看历史、搜索历史以及页面展示状态。这些数据默认保存在当前设备的
             `localStorage` 或 `sessionStorage`
             中，用于实现继续播放、恢复浏览位置和本地偏好展示。
           </div>
+        </section>
+
+        <section>
+          <h2 className="text-white font-bold text-lg mb-2">匿名访问统计</h2>
+          <p className="text-sm leading-relaxed text-gray-400">
+            为了解访问规模并改善页面体验，应用使用 Vercel Web Analytics
+            收集匿名汇总数据，包括访问时间、页面路径、访问来源、粗粒度地区、设备类型、操作系统和浏览器类型。
+            该统计功能不使用 Cookie，不保存或向本站展示可关联到具体用户的原始 IP
+            地址，也不会用于跨网站或跨日识别用户。相关数据由 Vercel
+            处理，用于生成访问人数、页面浏览量、热门页面和跳出率等统计报表。
+          </p>
         </section>
 
         <section>
@@ -42,8 +53,8 @@ const PrivacyPolicy = () => {
         <section>
           <h2 className="text-white font-bold text-lg mb-2">数据控制与清理</h2>
           <p className="text-sm leading-relaxed text-gray-400">
-            您可以通过“我的”页面清除观看历史；短视频喜欢列表也会在取消喜欢后从本地移除。如需彻底清除本地缓存，
-            也可以直接清理浏览器站点数据。清理后，观看进度、喜欢记录和搜索历史将无法恢复。
+            您可以通过“我的”页面清除观看历史。如需彻底清除本地缓存，也可以直接清理浏览器站点数据。
+            清理后，观看进度和搜索历史将无法恢复。匿名访问统计不提供识别或追踪单个用户的能力。
           </p>
         </section>
 
