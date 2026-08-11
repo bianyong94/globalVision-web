@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import {
   ArrowLeft,
@@ -25,8 +25,9 @@ import {
   parseMovieEpisodeUrl,
 } from "../services/api"
 import { createImageFallbackHandler, getProxyUrl } from "../utils/common"
-import { upsertPlayHistory } from "../utils/history"
-import { MovieEpisodeItem, MovieListItem } from "../types"
+import { useAuth } from "../contexts/AuthContext"
+import { savePlaybackHistory } from "../services/accountApi"
+import { MovieEpisodeItem, MovieListItem, PlaybackHistoryItem } from "../types"
 
 const looksLikeMediaUrl = (value: string) =>
   /\.(m3u8|mp4|flv|mkv)(?:$|[?#])/i.test(value) || value.startsWith("blob:")
@@ -42,19 +43,31 @@ const Detail = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
 
   const historySourceCode = searchParams.get("source") || ""
+  const historySourceIndexValue = searchParams.get("sourceIndex")
+  const parsedHistorySourceIndex = Number(historySourceIndexValue)
+  const historySourceIndex =
+    historySourceIndexValue !== null &&
+    Number.isInteger(parsedHistorySourceIndex) &&
+    parsedHistorySourceIndex >= 0
+      ? parsedHistorySourceIndex
+      : null
   const historyEpisodeIndex = Number(searchParams.get("ep") || 0)
   const historyTime = Number(searchParams.get("t") || 0)
+  const hasHistoryRoute = !!historySourceCode || historySourceIndex !== null
 
   const [activeSourceCode, setActiveSourceCode] = useState(historySourceCode)
   const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(historyEpisodeIndex)
   const [resolvedPlayUrl, setResolvedPlayUrl] = useState("")
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [resumeTime, setResumeTime] = useState(historyTime)
-  const manualSourceSelectionRef = useRef(!!historySourceCode)
+  const manualSourceSelectionRef = useRef(hasHistoryRoute)
   const currentTimeRef = useRef(0)
-  const historySaveTimerRef = useRef<number | null>(null)
+  const durationRef = useRef(0)
+  const saveHistoryRef = useRef<() => void>(() => undefined)
 
   const detailQuery = useQuery({
     queryKey: ["movie-detail", id],
@@ -82,7 +95,7 @@ const Detail = () => {
         ?.id || 0
     )
   }, [configQuery.data?.index_top_nav, detail?.type_id, detail?.type_name])
-  const hasHistoryParams = useRef(!!historySourceCode)
+  const hasHistoryParams = useRef(hasHistoryRoute)
 
   useEffect(() => {
     if (hasHistoryParams.current) {
@@ -91,6 +104,17 @@ const Detail = () => {
     }
     manualSourceSelectionRef.current = false
   }, [detail?.id])
+
+  useEffect(() => {
+    if (
+      activeSourceCode ||
+      historySourceIndex === null ||
+      !detail?.play_from?.[historySourceIndex]
+    ) {
+      return
+    }
+    setActiveSourceCode(detail.play_from[historySourceIndex].code)
+  }, [activeSourceCode, detail?.play_from, historySourceIndex])
 
   const resolveEpisodeUrl = useCallback(
     async (episode: MovieEpisodeItem | undefined) => {
@@ -150,7 +174,7 @@ const Detail = () => {
     [],
   )
 
-  const skipDiscovery = !!historySourceCode
+  const skipDiscovery = hasHistoryRoute
   const playbackDiscoveryQuery = useQuery({
     queryKey: ["movie-playback-discovery", detail?.id],
     queryFn: async () => {
@@ -199,10 +223,18 @@ const Detail = () => {
   ])
 
   const activeSource = useMemo(
-    () =>
-      detail?.play_from?.find((item) => item.code === activeSourceCode) ||
-      detail?.play_from?.[0],
-    [detail?.play_from, activeSourceCode],
+    () => {
+      const sourceFromHistoryIndex =
+        historySourceIndex !== null
+          ? detail?.play_from?.[historySourceIndex]
+          : undefined
+      return (
+        detail?.play_from?.find((item) => item.code === activeSourceCode) ||
+        sourceFromHistoryIndex ||
+        detail?.play_from?.[0]
+      )
+    },
+    [detail?.play_from, activeSourceCode, historySourceIndex],
   )
 
   const episodesQuery = useQuery({
@@ -264,48 +296,76 @@ const Detail = () => {
   const episodes = episodesQuery.data || []
   const activeEpisode = episodes[activeEpisodeIndex]
 
+  const saveHistory = useCallback(() => {
+    if (!user || !detail || !activeSource || currentTimeRef.current <= 0) return
+    const sourceIndex = Math.max(
+      0,
+      detail.play_from.findIndex((source) => source.code === activeSource.code),
+    )
+    void savePlaybackHistory(detail.id, {
+      contentType: "video",
+      title: detail.name,
+      subtitle: activeEpisode?.episode_name || "",
+      posterUrl: detail.cover,
+      positionSeconds: Math.max(0, Math.floor(currentTimeRef.current)),
+      durationSeconds: Math.max(0, Math.floor(durationRef.current)),
+      completed:
+        durationRef.current > 0 &&
+        currentTimeRef.current >= durationRef.current * 0.95,
+      sourceIndex,
+      sourceName: activeSource.name,
+      episodeIndex: activeEpisodeIndex,
+      episodeName: activeEpisode?.episode_name || "",
+      year: detail.year || "",
+      category: detail.type_name || "",
+      remark: detail.remarks || "",
+    })
+      .then((saved) => {
+        queryClient.setQueryData<PlaybackHistoryItem[]>(
+          ["account-playback-history", user.id],
+          (items = []) => [
+            saved,
+            ...items.filter((item) => item.contentId !== saved.contentId),
+          ],
+        )
+      })
+      .catch(() => {
+        // Leaving the player must not be blocked by history availability.
+      })
+  }, [
+    user,
+    detail,
+    activeSource,
+    activeEpisodeIndex,
+    activeEpisode?.episode_name,
+    queryClient,
+  ])
+
   const handleEpisodeEnded = useCallback(() => {
     if (episodes.length > 1 && activeEpisodeIndex < episodes.length - 1) {
       setActiveEpisodeIndex((prev) => prev + 1)
       setResolvedPlayUrl("")
       setResumeTime(0)
       currentTimeRef.current = 0
+      durationRef.current = 0
     }
   }, [episodes.length, activeEpisodeIndex])
 
-  const saveHistory = useCallback(() => {
-    if (!detail || !activeSource) return
-    upsertPlayHistory({
-      id: detail.id,
-      name: detail.name,
-      cover: detail.cover,
-      sourceCode: activeSource.code,
-      sourceName: activeSource.name,
-      episodeIndex: activeEpisodeIndex,
-      episodeName: activeEpisode?.episode_name || "",
-      currentTime: currentTimeRef.current,
-      updatedAt: Date.now(),
-    })
-  }, [detail, activeSource, activeEpisodeIndex, activeEpisode?.episode_name])
-
-  const handleTimeUpdate = useCallback((time: number) => {
+  const handleTimeUpdate = useCallback((time: number, duration: number) => {
     currentTimeRef.current = time
-    if (historySaveTimerRef.current != null) return
-    historySaveTimerRef.current = window.setTimeout(() => {
-      historySaveTimerRef.current = null
-      saveHistory()
-    }, 5000)
-  }, [saveHistory])
+    durationRef.current = duration
+  }, [])
 
   useEffect(() => {
-    return () => {
-      if (historySaveTimerRef.current != null) {
-        window.clearTimeout(historySaveTimerRef.current)
-        historySaveTimerRef.current = null
-      }
-      saveHistory()
-    }
+    saveHistoryRef.current = saveHistory
   }, [saveHistory])
+
+  useEffect(
+    () => () => {
+      saveHistoryRef.current()
+    },
+    [id],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -509,9 +569,10 @@ const Detail = () => {
                     setResolvedPlayUrl("")
                     setResumeTime(0)
                     currentTimeRef.current = 0
+                    durationRef.current = 0
                   }}
                   className={`shrink-0 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
-                    activeSourceCode === source.code
+                    activeSource?.code === source.code
                       ? "bg-lime-400 text-black shadow-md"
                       : "bg-white/5 text-white/70 hover:bg-white/10"
                   }`}
@@ -541,6 +602,7 @@ const Detail = () => {
                       setResolvedPlayUrl("")
                       setResumeTime(0)
                       currentTimeRef.current = 0
+                      durationRef.current = 0
                     }}
                     className={`rounded-lg py-2.5 text-xs font-medium transition active:scale-95 px-1 truncate ${
                       activeEpisodeIndex === index

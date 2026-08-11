@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/account-api/:path*",
+      "destination": "https://tv-api.freeby.us.ci/:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://api.bycurry.cc/api/:path*"
     }

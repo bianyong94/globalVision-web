@@ -11,6 +11,13 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 2345,
       host: "0.0.0.0",
+      proxy: {
+        "/account-api": {
+          target: "https://tv-api.freeby.us.ci",
+          changeOrigin: true,
+          rewrite: (requestPath) => requestPath.replace(/^\/account-api/, ""),
+        },
+      },
     },
     plugins: [
       react(),

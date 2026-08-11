@@ -14,7 +14,7 @@ interface PlayerProps {
   poster?: string
   className?: string
   initialTime?: number
-  onTimeUpdate?: (time: number) => void
+  onTimeUpdate?: (time: number, duration: number) => void
   onEnded?: () => void
   onError?: () => void
 }
@@ -85,7 +85,10 @@ const Player: React.FC<PlayerProps> = ({
       if (now - lastTimeEmit < 250) return
       lastTimeEmit = now
       if (callbacksRef.current.onTimeUpdate && video.currentTime > 0) {
-        callbacksRef.current.onTimeUpdate(video.currentTime)
+        callbacksRef.current.onTimeUpdate(
+          video.currentTime,
+          Number.isFinite(video.duration) ? video.duration : 0,
+        )
       }
     }
 

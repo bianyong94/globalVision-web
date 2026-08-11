@@ -29,8 +29,6 @@ import {
   Category,
   VideoSummary,
   AiCandidate,
-  User,
-  AuthResponse,
 } from "../types"
 
 const API_BASE_URL = "https://dyls1.mbxqnb.cn/api/v1"
@@ -1398,14 +1396,7 @@ export const fetchVideoSources = async (
   }))
 }
 
-export const fetchHistory = async (_username: string): Promise<any[]> => []
-export const saveHistory = async (_payload: any) => undefined
-export const clearUserHistory = async (_username: string): Promise<boolean> => true
 export const askAI = async (_question: string): Promise<AiCandidate[]> => []
-export const login = async (username: string): Promise<User> =>
-  ({ id: username, username, history: [] } as User)
-export const register = async (username: string): Promise<User> =>
-  ({ id: username, username, history: [] } as User)
 export const ingestVideo = async (_title: string): Promise<any> => ({})
 export const ingestVideoBySource = async (_payload: {
   source_key: string

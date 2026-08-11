@@ -104,16 +104,60 @@ export interface Category {
   type_name: string
 }
 
-export interface User {
+export interface AccountUser {
   id: string
-  username: string
-  history: any[]
+  phone: string
+  displayName: string
+  status: string
+  createdAt: string
+  updatedAt: string
 }
 
-export interface AuthResponse {
-  code: number
-  message: string
-  data: User
+export interface AccountTokens {
+  accessToken: string
+  refreshToken: string
+  tokenType: "Bearer"
+  expiresIn: number
+  accessExpiresAt: string
+  refreshExpiresAt: string
+}
+
+export interface PlaybackHistoryItem {
+  contentId: string
+  contentType: string
+  title: string
+  subtitle: string
+  posterUrl: string
+  positionSeconds: number
+  durationSeconds: number
+  completed: boolean
+  playedAt: string
+  sourceIndex: number
+  sourceName: string
+  episodeIndex: number
+  episodeName: string
+  year: string
+  category: string
+  remark: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PlaybackHistoryInput {
+  contentType: string
+  title: string
+  subtitle: string
+  posterUrl: string
+  positionSeconds: number
+  durationSeconds: number
+  completed: boolean
+  sourceIndex: number
+  sourceName: string
+  episodeIndex: number
+  episodeName: string
+  year: string
+  category: string
+  remark: string
 }
 
 export type AiCandidateSource = "local" | "tmdb" | "external"

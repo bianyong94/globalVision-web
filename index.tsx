@@ -6,6 +6,7 @@ import App from "./App"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import "./index.css"
 import { HelmetProvider } from "react-helmet-async" // 引入这个
+import { AuthProvider } from "./contexts/AuthContext"
 
 // 2. 创建实例并配置默认策略
 const queryClient = new QueryClient({
@@ -38,8 +39,10 @@ root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <HelmetProvider>
-        <App />
-        <Analytics />
+        <AuthProvider>
+          <App />
+          <Analytics />
+        </AuthProvider>
       </HelmetProvider>
     </QueryClientProvider>
   </React.StrictMode>,

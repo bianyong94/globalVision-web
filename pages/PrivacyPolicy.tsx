@@ -24,10 +24,9 @@ const PrivacyPolicy = () => {
             <h2 className="text-white font-bold text-lg">数据收集与使用</h2>
           </div>
           <div className="text-sm leading-relaxed text-gray-400 bg-white/5 p-4 rounded-xl">
-            当前版本以本地使用为主。为了提供更顺手的浏览体验，应用会在您的设备浏览器中保存少量本地数据，
-            主要包括观看历史、搜索历史以及页面展示状态。这些数据默认保存在当前设备的
-            `localStorage` 或 `sessionStorage`
-            中，用于实现继续播放、恢复浏览位置和本地偏好展示。
+            登录或注册时，账号服务会处理您的手机号、昵称、密码凭据和设备会话；密码仅以安全哈希形式保存。
+            登录后的观看历史和播放进度保存在账号服务中，用于与 TV 端同步。浏览器本地只保存登录令牌、
+            搜索历史和页面展示状态，不再保存观看历史副本。
           </div>
         </section>
 
@@ -53,16 +52,17 @@ const PrivacyPolicy = () => {
         <section>
           <h2 className="text-white font-bold text-lg mb-2">数据控制与清理</h2>
           <p className="text-sm leading-relaxed text-gray-400">
-            您可以通过“我的”页面清除观看历史。如需彻底清除本地缓存，也可以直接清理浏览器站点数据。
-            清理后，观看进度和搜索历史将无法恢复。匿名访问统计不提供识别或追踪单个用户的能力。
+            您可以通过“我的”页面删除单条或清空全部观看历史，变更会同步到同一账号登录的 TV 端。
+            退出登录会清除当前浏览器中的账号会话；清理浏览器站点数据还会移除搜索历史和页面状态。
+            匿名访问统计不提供识别或追踪单个用户的能力。
           </p>
         </section>
 
         <section>
           <h2 className="text-white font-bold text-lg mb-2">隐私原则</h2>
           <p className="text-sm leading-relaxed text-gray-400">
-            当前项目优先采用“本地优先、最少存储”的方式处理用户数据，不主动要求与功能无关的个人信息。若后续
-            引入账号、同步或云端能力，相关页面与文案会同步更新。
+            当前项目按功能需要最少存储用户数据。影视内容接口与账号服务相互独立，账号服务仅用于认证、
+            会话管理和用户资料、观看历史等同步数据。
           </p>
         </section>
         <section>
