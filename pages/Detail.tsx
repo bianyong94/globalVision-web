@@ -39,6 +39,23 @@ const isPlayableUrl = (value: string) => {
   return normalized.startsWith("http://") || normalized.startsWith("https://")
 }
 
+const getEpisodeMatchKeys = (name: string) => {
+  const normalized = name.trim().toLowerCase().replace(/\s+/g, "")
+  const numberedEpisode =
+    normalized.match(/(?:第|ep)(0*\d+(?:\.\d+)?)(?:集|期|话)?/) ||
+    normalized.match(/^0*(\d+(?:\.\d+)?)(?:集|期|话)?$/)
+  return {
+    normalized,
+    episodeNumber: numberedEpisode ? Number(numberedEpisode[1]) : null,
+  }
+}
+
+type PendingSourceSwitch = {
+  sourceCode: string
+  episodeName: string
+  episodeIndex: number
+}
+
 const Detail = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -64,9 +81,12 @@ const Detail = () => {
   const [resolvedPlayUrl, setResolvedPlayUrl] = useState("")
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const [resumeTime, setResumeTime] = useState(historyTime)
+  const [shouldAutoPlay, setShouldAutoPlay] = useState(true)
   const manualSourceSelectionRef = useRef(hasHistoryRoute)
   const currentTimeRef = useRef(0)
   const durationRef = useRef(0)
+  const isPlayingRef = useRef(true)
+  const pendingSourceSwitchRef = useRef<PendingSourceSwitch | null>(null)
   const saveHistoryRef = useRef<() => void>(() => undefined)
 
   const detailQuery = useQuery({
@@ -296,6 +316,51 @@ const Detail = () => {
   const episodes = episodesQuery.data || []
   const activeEpisode = episodes[activeEpisodeIndex]
 
+  useEffect(() => {
+    const pendingSwitch = pendingSourceSwitchRef.current
+    if (!pendingSwitch || pendingSwitch.sourceCode !== activeSource?.code) return
+    if (episodesQuery.isLoading || episodesQuery.isFetching) return
+
+    if (episodes.length === 0) {
+      pendingSourceSwitchRef.current = null
+      setActiveEpisodeIndex(0)
+      return
+    }
+
+    const targetKeys = getEpisodeMatchKeys(pendingSwitch.episodeName)
+    let matchedIndex = pendingSwitch.episodeName
+      ? episodes.findIndex(
+          (episode) =>
+            getEpisodeMatchKeys(episode.episode_name).normalized ===
+            targetKeys.normalized,
+        )
+      : -1
+    if (matchedIndex < 0 && targetKeys.episodeNumber !== null) {
+      matchedIndex = episodes.findIndex(
+        (episode) =>
+          getEpisodeMatchKeys(episode.episode_name).episodeNumber ===
+          targetKeys.episodeNumber,
+      )
+    }
+    const nextEpisodeIndex =
+      matchedIndex >= 0
+        ? matchedIndex
+        : Math.min(pendingSwitch.episodeIndex, episodes.length - 1)
+
+    if (nextEpisodeIndex !== activeEpisodeIndex) {
+      setActiveEpisodeIndex(nextEpisodeIndex)
+      return
+    }
+
+    pendingSourceSwitchRef.current = null
+  }, [
+    activeEpisodeIndex,
+    activeSource?.code,
+    episodes,
+    episodesQuery.isFetching,
+    episodesQuery.isLoading,
+  ])
+
   const saveHistory = useCallback(() => {
     if (!user || !detail || !activeSource || currentTimeRef.current <= 0) return
     const sourceIndex = Math.max(
@@ -343,6 +408,8 @@ const Detail = () => {
 
   const handleEpisodeEnded = useCallback(() => {
     if (episodes.length > 1 && activeEpisodeIndex < episodes.length - 1) {
+      isPlayingRef.current = true
+      setShouldAutoPlay(true)
       setActiveEpisodeIndex((prev) => prev + 1)
       setResolvedPlayUrl("")
       setResumeTime(0)
@@ -354,6 +421,11 @@ const Detail = () => {
   const handleTimeUpdate = useCallback((time: number, duration: number) => {
     currentTimeRef.current = time
     durationRef.current = duration
+  }, [])
+
+  const handlePlaybackStateChange = useCallback((isPlaying: boolean) => {
+    isPlayingRef.current = isPlaying
+    setShouldAutoPlay(isPlaying)
   }, [])
 
   useEffect(() => {
@@ -371,6 +443,7 @@ const Detail = () => {
     let cancelled = false
     const run = async () => {
       if (!detail || !activeEpisode?.play_url) return
+      if (pendingSourceSwitchRef.current?.sourceCode === activeSource?.code) return
 
       const resolved = await resolveEpisodeUrl(activeEpisode)
       if (cancelled) return
@@ -389,6 +462,7 @@ const Detail = () => {
     activeEpisode?.episode_id,
     activeEpisode?.from_code,
     activeEpisode?.play_url,
+    activeSource?.code,
     detail,
     resolveEpisodeUrl,
   ])
@@ -500,7 +574,9 @@ const Detail = () => {
                   url={playerUrl}
                   poster={detail.cover}
                   initialTime={resumeTime > 0 ? resumeTime : undefined}
+                  autoPlay={shouldAutoPlay}
                   onTimeUpdate={handleTimeUpdate}
+                  onPlaybackStateChange={handlePlaybackStateChange}
                   onEnded={handleEpisodeEnded}
                 />
               ) : (
@@ -563,12 +639,19 @@ const Detail = () => {
                 <button
                   key={source.code}
                   onClick={() => {
+                    if (source.code === activeSource?.code) return
                     manualSourceSelectionRef.current = true
+                    saveHistory()
+                    pendingSourceSwitchRef.current = {
+                      sourceCode: source.code,
+                      episodeName: activeEpisode?.episode_name || "",
+                      episodeIndex: activeEpisodeIndex,
+                    }
+                    const switchTime = currentTimeRef.current
+                    setResumeTime(switchTime)
+                    setShouldAutoPlay(isPlayingRef.current)
                     setActiveSourceCode(source.code)
-                    setActiveEpisodeIndex(0)
                     setResolvedPlayUrl("")
-                    setResumeTime(0)
-                    currentTimeRef.current = 0
                     durationRef.current = 0
                   }}
                   className={`shrink-0 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
@@ -598,6 +681,9 @@ const Detail = () => {
                     key={`${episode.episode_id}-${episode.episode_name}`}
                     onClick={() => {
                       manualSourceSelectionRef.current = true
+                      pendingSourceSwitchRef.current = null
+                      isPlayingRef.current = true
+                      setShouldAutoPlay(true)
                       setActiveEpisodeIndex(index)
                       setResolvedPlayUrl("")
                       setResumeTime(0)
