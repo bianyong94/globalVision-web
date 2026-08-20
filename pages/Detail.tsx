@@ -72,8 +72,16 @@ const Detail = () => {
     parsedHistorySourceIndex >= 0
       ? parsedHistorySourceIndex
       : null
-  const historyEpisodeIndex = Number(searchParams.get("ep") || 0)
-  const historyTime = Number(searchParams.get("t") || 0)
+  const parsedHistoryEpisodeIndex = Number(searchParams.get("ep") || 0)
+  const historyEpisodeIndex =
+    Number.isInteger(parsedHistoryEpisodeIndex) && parsedHistoryEpisodeIndex >= 0
+      ? parsedHistoryEpisodeIndex
+      : 0
+  const parsedHistoryTime = Number(searchParams.get("t") || 0)
+  const historyTime =
+    Number.isFinite(parsedHistoryTime) && parsedHistoryTime > 0
+      ? parsedHistoryTime
+      : 0
   const hasHistoryRoute = !!historySourceCode || historySourceIndex !== null
 
   const [activeSourceCode, setActiveSourceCode] = useState(historySourceCode)
@@ -83,11 +91,12 @@ const Detail = () => {
   const [resumeTime, setResumeTime] = useState(historyTime)
   const [shouldAutoPlay, setShouldAutoPlay] = useState(true)
   const manualSourceSelectionRef = useRef(hasHistoryRoute)
-  const currentTimeRef = useRef(0)
+  const currentTimeRef = useRef(historyTime)
   const durationRef = useRef(0)
   const isPlayingRef = useRef(true)
   const pendingSourceSwitchRef = useRef<PendingSourceSwitch | null>(null)
   const saveHistoryRef = useRef<() => void>(() => undefined)
+  const detailIdRef = useRef(id || "")
 
   const detailQuery = useQuery({
     queryKey: ["movie-detail", id],
@@ -115,15 +124,28 @@ const Detail = () => {
         ?.id || 0
     )
   }, [configQuery.data?.index_top_nav, detail?.type_id, detail?.type_name])
-  const hasHistoryParams = useRef(hasHistoryRoute)
-
   useEffect(() => {
-    if (hasHistoryParams.current) {
-      hasHistoryParams.current = false
-      return
-    }
-    manualSourceSelectionRef.current = false
-  }, [detail?.id])
+    const nextId = id || ""
+    if (!nextId || detailIdRef.current === nextId) return
+    detailIdRef.current = nextId
+    manualSourceSelectionRef.current = hasHistoryRoute
+    pendingSourceSwitchRef.current = null
+    isPlayingRef.current = true
+    currentTimeRef.current = historyTime
+    durationRef.current = 0
+    setActiveSourceCode(historySourceCode)
+    setActiveEpisodeIndex(historyEpisodeIndex)
+    setResolvedPlayUrl("")
+    setResumeTime(historyTime)
+    setShouldAutoPlay(true)
+    setIsDescriptionExpanded(false)
+  }, [
+    hasHistoryRoute,
+    historyEpisodeIndex,
+    historySourceCode,
+    historyTime,
+    id,
+  ])
 
   useEffect(() => {
     if (
@@ -210,7 +232,7 @@ const Detail = () => {
         const limit = Math.min(episodeList.length, 6)
         for (let episodeIndex = 0; episodeIndex < limit; episodeIndex += 1) {
           const resolved = await resolveEpisodeUrl(episodeList[episodeIndex])
-          if (resolved) {
+          if (isPlayableUrl(resolved)) {
             return {
               sourceCode: source.code,
               sourceIndex,
@@ -319,7 +341,7 @@ const Detail = () => {
   useEffect(() => {
     const pendingSwitch = pendingSourceSwitchRef.current
     if (!pendingSwitch || pendingSwitch.sourceCode !== activeSource?.code) return
-    if (episodesQuery.isLoading || episodesQuery.isFetching) return
+    if (episodesQuery.isLoading) return
 
     if (episodes.length === 0) {
       pendingSourceSwitchRef.current = null
@@ -357,9 +379,25 @@ const Detail = () => {
     activeEpisodeIndex,
     activeSource?.code,
     episodes,
-    episodesQuery.isFetching,
     episodesQuery.isLoading,
   ])
+
+  useEffect(() => {
+    if (
+      pendingSourceSwitchRef.current ||
+      episodesQuery.isLoading ||
+      episodes.length === 0 ||
+      activeEpisodeIndex < episodes.length
+    ) {
+      return
+    }
+
+    setActiveEpisodeIndex(episodes.length - 1)
+    setResolvedPlayUrl("")
+    setResumeTime(0)
+    currentTimeRef.current = 0
+    durationRef.current = 0
+  }, [activeEpisodeIndex, episodes.length, episodesQuery.isLoading])
 
   const saveHistory = useCallback(() => {
     if (!user || !detail || !activeSource || currentTimeRef.current <= 0) return
@@ -448,10 +486,11 @@ const Detail = () => {
       const resolved = await resolveEpisodeUrl(activeEpisode)
       if (cancelled) return
 
-      if (resolved) {
+      if (isPlayableUrl(resolved)) {
         setResolvedPlayUrl(resolved)
         return
       }
+      setResolvedPlayUrl("")
     }
 
     run()
@@ -580,9 +619,7 @@ const Detail = () => {
                   onEnded={handleEpisodeEnded}
                 />
               ) : (
-                <div className="flex h-full items-center justify-center">
-                  <LoaderState />
-                </div>
+                <LoaderState poster={detail.cover} title={detail.name} />
               )}
               </div>
             </div>
@@ -804,11 +841,14 @@ const Detail = () => {
   )
 }
 
-const LoaderState = () => (
-  <div className="flex flex-col items-center gap-2">
-    <RefreshCw className="h-6 w-6 animate-spin text-lime-400" />
-    <p className="text-xs text-white/40 tracking-wide">正在解析加密播放源...</p>
-  </div>
+const LoaderState = ({ poster, title }: { poster: string; title: string }) => (
+  <img
+    src={getProxyUrl(poster, { w: 1280, q: 72 })}
+    alt={title}
+    className="h-full w-full object-contain opacity-70"
+    decoding="async"
+    onError={createImageFallbackHandler(poster)}
+  />
 )
 
 export default Detail

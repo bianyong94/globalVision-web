@@ -13,53 +13,34 @@
   background: #040508;
 }
 
-.gv-player-status {
+.gv-player-error {
   position: absolute;
   inset: 0;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
-  background: radial-gradient(circle, rgb(4 5 8 / 0.36), rgb(4 5 8 / 0.08) 55%, transparent 75%);
-}
-
-.gv-player-status--error {
-  pointer-events: auto;
   background: rgb(4 5 8 / 0.72);
 }
 
-.gv-player-status-card {
+.gv-player-error-card {
   display: flex;
   align-items: center;
   gap: 0.55rem;
   max-width: calc(100% - 2rem);
   border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: 9999px;
-  padding: 0.6rem 0.9rem;
   color: rgb(255 255 255 / 0.78);
   background: rgb(8 9 15 / 0.82);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
   backdrop-filter: blur(12px);
   font-size: 0.75rem;
-}
-
-.gv-player-status-card--error {
   flex-direction: column;
   border-radius: 1rem;
   padding: 1rem 1.15rem;
   text-align: center;
 }
 
-.gv-player-status-spinner {
-  width: 1.05rem;
-  height: 1.05rem;
-  flex: none;
-  color: #a3e635;
-  animation: gv-player-spin 0.9s linear infinite;
-}
-
-.gv-player-status-error-icon {
+.gv-player-error-icon {
   width: 1.5rem;
   height: 1.5rem;
   color: #fb7185;
@@ -80,12 +61,6 @@
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-}
-
-@keyframes gv-player-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .gv-native-player:fullscreen,

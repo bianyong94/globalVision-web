@@ -136,6 +136,9 @@ export const loadVideoSource = (
   if (!url) return
   const generation = (sourceLoadGeneration.get(video) || 0) + 1
   sourceLoadGeneration.set(video, generation)
+  const notifyFatal = () => {
+    if (sourceLoadGeneration.get(video) === generation) onFatal?.()
+  }
 
   destroyHlsInstance(hlsRef.current)
   hlsRef.current = null
@@ -153,11 +156,11 @@ export const loadVideoSource = (
       .then((HlsImpl) => {
         if (sourceLoadGeneration.get(video) !== generation) return
         if (!HlsImpl.isSupported()) {
-          onFatal?.()
+          notifyFatal()
           return
         }
 
-        const hls = createHls(HlsImpl, options.profile || "vod", onFatal)
+        const hls = createHls(HlsImpl, options.profile || "vod", notifyFatal)
         hls.attachMedia(video)
         hls.loadSource(url)
         hls.on(HlsImpl.Events.MANIFEST_PARSED, () => {
@@ -167,7 +170,7 @@ export const loadVideoSource = (
         })
         hlsRef.current = hls
       })
-      .catch(() => onFatal?.())
+      .catch(notifyFatal)
     return
   }
 
