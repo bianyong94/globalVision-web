@@ -5,6 +5,7 @@ import { configureMobileVideo } from "./player/device"
 import {
   cancelPendingVideoSourceLoad,
   destroyHlsInstance,
+  isM3u8Url,
   loadVideoSource,
 } from "./player/hls-loader"
 import { normalizeMediaUrl } from "../utils/common"
@@ -24,8 +25,7 @@ interface PlayerProps {
 
 type PlayerStatus = "loading" | "ready" | "error"
 
-const STALL_RECOVERY_DELAY_MS = 8000
-const MAX_RECOVERY_ATTEMPTS = 3
+const SOFT_STALL_RECOVERY_DELAY_MS = 20000
 
 const Player: React.FC<PlayerProps> = ({
   url,
@@ -41,9 +41,10 @@ const Player: React.FC<PlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const stallTimerRef = useRef<number | null>(null)
-  const recoveryAttemptsRef = useRef(0)
-  const recoverySeekTimeRef = useRef<number | null>(null)
-  const lastPlayUrlRef = useRef("")
+  const retrySeekTimeRef = useRef<number | null>(null)
+  const fatalErrorRef = useRef(false)
+  const isSeekingRef = useRef(false)
+  const isRestoringPositionRef = useRef(false)
   const shouldAutoPlayRef = useRef(autoPlay)
   const callbacksRef = useRef({
     onTimeUpdate,
@@ -72,16 +73,17 @@ const Player: React.FC<PlayerProps> = ({
   useEffect(() => {
     const video = videoRef.current
     if (!video || !playUrl) return
-
-    if (lastPlayUrlRef.current !== playUrl) {
-      lastPlayUrlRef.current = playUrl
-      recoveryAttemptsRef.current = 0
-      recoverySeekTimeRef.current = null
-    }
+    const usesManagedHls =
+      isM3u8Url(playUrl) &&
+      !video.canPlayType("application/vnd.apple.mpegurl")
 
     configureMobileVideo(video)
+    fatalErrorRef.current = false
+    isSeekingRef.current = false
+    isRestoringPositionRef.current = false
     setStatus("loading")
     setStatusMessage("正在加载播放资源...")
+    let hasStartedPlayback = false
 
     const clearStallTimer = () => {
       if (stallTimerRef.current !== null) {
@@ -91,8 +93,10 @@ const Player: React.FC<PlayerProps> = ({
     }
 
     const markReady = () => {
+      if (fatalErrorRef.current) return
       clearStallTimer()
-      recoveryAttemptsRef.current = 0
+      isSeekingRef.current = false
+      isRestoringPositionRef.current = false
       setStatus("ready")
     }
 
@@ -105,65 +109,52 @@ const Player: React.FC<PlayerProps> = ({
 
     const failPlayback = () => {
       clearStallTimer()
+      fatalErrorRef.current = true
       setStatus("error")
       setStatusMessage("当前线路加载失败，请重试或切换线路")
       callbacksRef.current.onError?.()
     }
 
-    const restartSource = (seekTime: number) => {
-      recoverySeekTimeRef.current = seekTime
-      setLoadAttempt((attempt) => attempt + 1)
-    }
-
-    const recoverPlayback = (forceSourceRestart = false) => {
-      if (video.ended) return
-      if (recoveryAttemptsRef.current >= MAX_RECOVERY_ATTEMPTS) {
-        failPlayback()
+    const scheduleSoftStallRecovery = () => {
+      if (
+        stallTimerRef.current !== null ||
+        !hasStartedPlayback ||
+        video.paused ||
+        video.ended
+      ) {
         return
       }
-
-      recoveryAttemptsRef.current += 1
-      const attempt = recoveryAttemptsRef.current
-      const seekTime = Number.isFinite(video.currentTime) ? video.currentTime : 0
-      setStatus("loading")
-      setStatusMessage(`播放中断，正在自动重试（${attempt}/${MAX_RECOVERY_ATTEMPTS}）...`)
-
-      if (forceSourceRestart) {
-        restartSource(seekTime)
-        return
-      }
-
-      const hls = hlsRef.current
-      if (!hls) {
-        restartSource(seekTime)
-        return
-      }
-
-      try {
-        hls.stopLoad()
-        hls.startLoad(seekTime)
-        playIfRequested()
-        scheduleStallRecovery()
-      } catch {
-        restartSource(seekTime)
-      }
-    }
-
-    function scheduleStallRecovery() {
-      if (stallTimerRef.current !== null) return
+      const stalledAt = video.currentTime
       stallTimerRef.current = window.setTimeout(() => {
         stallTimerRef.current = null
-        if (video.ended || video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        if (
+          fatalErrorRef.current ||
+          video.paused ||
+          video.ended ||
+          video.seeking ||
+          video.currentTime > stalledAt + 0.1 ||
+          video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+        ) {
           return
         }
-        recoverPlayback()
-      }, STALL_RECOVERY_DELAY_MS)
+
+        // Hls.js keeps ownership of network retries. This is only a soft kick
+        // after a prolonged, real playback stall; it never reloads the source
+        // or turns a recoverable wait into a fatal UI state.
+        try {
+          hlsRef.current?.startLoad(video.currentTime)
+          playIfRequested()
+        } catch {
+          // A destroyed HLS instance will report through the fatal callback.
+        }
+      }, SOFT_STALL_RECOVERY_DELAY_MS)
     }
 
     const seekTarget =
-      recoverySeekTimeRef.current ??
+      retrySeekTimeRef.current ??
       (initialTime && initialTime > 0 ? initialTime : 0)
-    recoverySeekTimeRef.current = null
+    retrySeekTimeRef.current = null
+    isRestoringPositionRef.current = seekTarget > 0
 
     const seekAndMaybePlay = () => {
       if (seekTarget > 0 && Number.isFinite(video.duration)) {
@@ -176,7 +167,7 @@ const Player: React.FC<PlayerProps> = ({
       video,
       playUrl,
       hlsRef,
-      () => recoverPlayback(true),
+      failPlayback,
       {
         shouldAutoPlay: () => shouldAutoPlayRef.current,
       },
@@ -188,12 +179,11 @@ const Player: React.FC<PlayerProps> = ({
       video.addEventListener("loadedmetadata", seekAndMaybePlay, { once: true })
     }
 
-    let hasStartedPlayback = false
     let lastTimeEmit = 0
     let lastObservedTime = video.currentTime
     const onTimeUpdateEvent = () => {
       const currentTime = video.currentTime
-      if (currentTime > lastObservedTime + 0.05) {
+      if (!video.seeking && currentTime > lastObservedTime + 0.05) {
         lastObservedTime = currentTime
         markReady()
       }
@@ -226,35 +216,64 @@ const Player: React.FC<PlayerProps> = ({
       if (!hasStartedPlayback && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         return
       }
+      clearStallTimer()
       shouldAutoPlayRef.current = false
       callbacksRef.current.onPlaybackStateChange?.(false)
     }
 
-    const onWaitingEvent = () => {
+    const onLoadStartEvent = () => {
+      if (fatalErrorRef.current) return
       setStatus("loading")
-      setStatusMessage("网络缓冲中，请稍候...")
-      scheduleStallRecovery()
+      setStatusMessage("正在加载播放资源...")
+    }
+
+    const onWaitingEvent = () => {
+      if (fatalErrorRef.current) return
+      setStatus("loading")
+      setStatusMessage(
+        video.seeking ||
+          isSeekingRef.current ||
+          isRestoringPositionRef.current
+          ? "正在定位播放位置..."
+          : "网络缓冲中，请稍候...",
+      )
+      scheduleSoftStallRecovery()
     }
 
     const onCanPlayEvent = () => {
-      markReady()
+      if (!video.seeking && !isSeekingRef.current) markReady()
       playIfRequested()
     }
 
     const onSeekingEvent = () => {
+      clearStallTimer()
+      isSeekingRef.current = true
+      isRestoringPositionRef.current = true
       setStatus("loading")
       setStatusMessage("正在定位播放位置...")
-      scheduleStallRecovery()
     }
 
     const onSeekedEvent = () => {
-      if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) markReady()
+      isSeekingRef.current = false
+      if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        markReady()
+      } else {
+        setStatus("loading")
+        setStatusMessage(
+          isRestoringPositionRef.current
+            ? "正在定位播放位置..."
+            : "网络缓冲中，请稍候...",
+        )
+        scheduleSoftStallRecovery()
+      }
     }
 
     const onErrorEvent = () => {
       if (!video.error?.code) return
-      clearStallTimer()
-      recoverPlayback()
+      // In MSE/Hls.js mode, native media errors are part of HLS recovery.
+      // Only hls-loader's final fatal callback may transition to error.
+      if (usesManagedHls) return
+      failPlayback()
     }
 
     video.addEventListener("timeupdate", onTimeUpdateEvent)
@@ -262,14 +281,13 @@ const Player: React.FC<PlayerProps> = ({
     video.addEventListener("play", onPlayEvent)
     video.addEventListener("pause", onPauseEvent)
     video.addEventListener("error", onErrorEvent)
-    video.addEventListener("loadstart", onWaitingEvent)
+    video.addEventListener("loadstart", onLoadStartEvent)
     video.addEventListener("waiting", onWaitingEvent)
     video.addEventListener("stalled", onWaitingEvent)
     video.addEventListener("canplay", onCanPlayEvent)
     video.addEventListener("playing", markReady)
     video.addEventListener("seeking", onSeekingEvent)
     video.addEventListener("seeked", onSeekedEvent)
-    scheduleStallRecovery()
 
     return () => {
       clearStallTimer()
@@ -280,7 +298,7 @@ const Player: React.FC<PlayerProps> = ({
       video.removeEventListener("play", onPlayEvent)
       video.removeEventListener("pause", onPauseEvent)
       video.removeEventListener("error", onErrorEvent)
-      video.removeEventListener("loadstart", onWaitingEvent)
+      video.removeEventListener("loadstart", onLoadStartEvent)
       video.removeEventListener("waiting", onWaitingEvent)
       video.removeEventListener("stalled", onWaitingEvent)
       video.removeEventListener("canplay", onCanPlayEvent)
@@ -299,8 +317,8 @@ const Player: React.FC<PlayerProps> = ({
 
   const retry = () => {
     const video = videoRef.current
-    recoveryAttemptsRef.current = 0
-    recoverySeekTimeRef.current = video?.currentTime || initialTime || 0
+    fatalErrorRef.current = false
+    retrySeekTimeRef.current = video?.currentTime || initialTime || 0
     shouldAutoPlayRef.current = true
     setStatus("loading")
     setStatusMessage("正在重新连接播放资源...")
